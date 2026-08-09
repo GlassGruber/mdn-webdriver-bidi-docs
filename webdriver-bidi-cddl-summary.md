@@ -1,12 +1,14 @@
 # WebDriver BiDi - API & Schema Summary
 
-> Sintesi pulita del protocollo W3C per contesto LLM.
+> Sintesi del protocollo W3C con schemi CDDL, note ed issue in formato GitHub Alerts per contesto LLM.
 
 
 
 # Protocol #
 
 This section defines the basic concepts of the WebDriver BiDi
+protocol. These terms are distinct from their representation at the
+transport layer.
 
 
 ## Modules ##
@@ -17,21 +19,73 @@ The WebDriver BiDi protocol is organized into modules.
 ## Commands ##
 
 A command is an asynchronous operation, requested by
+the local end and run on the remote end, resulting in either a
+result or an error being returned to the local end. Multiple
+commands can run at the same time, and commands can potentially be
+long-running. As a consequence, commands can finish out-of-order.
+
+> [!NOTE]
+> This is because the command id is entirely controlled by the local end
+> and isn't necessarily unique over the course of a session. For example a local
+> end which ignores all responses could use the same command id for each command.
+
+
+## Errors ##
+
+WebDriver BiDi extends the set of error codes from [[WEBDRIVER|WebDriver]]
+with the following additional codes:
+
+```cddl
+ErrorCode = "invalid argument" /
+            "invalid selector" /
+            "invalid session id" /
+            "invalid web extension" /
+            "move target out of bounds" /
+            "no such alert" /
+            "no such network collector" /
+            "no such element" /
+            "no such frame" /
+            "no such handle" /
+            "no such history entry" /
+            "no such intercept" /
+            "no such network data" /
+            "no such node" /
+            "no such request" /
+            "no such screencast" /
+            "no such script" /
+            "no such storage partition" /
+            "no such user context" /
+            "no such web extension" /
+            "session not created" /
+            "unable to capture screen" /
+            "unable to close browser" /
+            "unable to set cookie" /
+            "unable to set file input" /
+            "unavailable network data" /
+            "underspecified storage partition" /
+            "unknown command" /
+            "unknown error" /
+            "unsupported operation"
+```
 
 
 ## Events ##
 
 An event is a notification, sent by the remote end
+to the local end, signaling that something of interest has
+occurred on the remote end.
 
 
 ## The session Module ##
 
 The session module contains commands and
+events for monitoring the status of the remote end.
 
 
 #### The session.CapabilitiesRequest Type ####
 
-session.CapabilitiesRequest = {
+The session.CapabilitiesRequest type represents the capabilities requested
+for a session.
 
 ```cddl
 session.CapabilitiesRequest = {
@@ -43,7 +97,8 @@ session.CapabilitiesRequest = {
 
 #### The session.CapabilityRequest Type ####
 
-{^remote end definition^} and {^local end definition^}
+The session.CapabilityRequest type represents a specific set of
+requested capabilities.
 
 ```cddl
 session.CapabilityRequest = {
@@ -60,7 +115,10 @@ session.CapabilityRequest = {
 
 #### The session.ProxyConfiguration Type ####
 
-{^remote end definition^} and {^local end definition^}
+session.AutodetectProxyConfiguration = (
+ proxyType: "autodetect",
+ Extensible
+)
 
 ```cddl
 session.ProxyConfiguration = {
@@ -110,7 +168,12 @@ session.SystemProxyConfiguration = (
 
 #### The session.UserPromptHandler Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The session.UserPromptHandler type represents the configuration of
+the user prompt handler.
+
+> [!NOTE]
+> file handles file picker. "accept" and "dismiss" dismisses
+> the picker. "ignore" keeps the picker open.
 
 ```cddl
 session.UserPromptHandler = {
@@ -126,7 +189,8 @@ session.UserPromptHandler = {
 
 #### The session.UserPromptHandlerType Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The session.UserPromptHandlerType type represents the behavior
+of the user prompt handler.
 
 ```cddl
 session.UserPromptHandlerType = "accept" / "dismiss" / "ignore";
@@ -135,7 +199,7 @@ session.UserPromptHandlerType = "accept" / "dismiss" / "ignore";
 
 #### The session.Subscription Type ####
 
-session.Subscription = text
+The session.Subscription type represents a unique subscription identifier.
 
 ```cddl
 session.Subscription = text
@@ -144,7 +208,8 @@ session.Subscription = text
 
 #### The session.SubscribeParameters Type ####
 
-session.SubscribeParameters = {
+The session.SubscribeParameters type represents a request to
+subscribe to a specific set of events.
 
 ```cddl
 session.SubscribeParameters = {
@@ -157,7 +222,8 @@ session.SubscribeParameters = {
 
 #### The session.UnsubscribeByIDRequest Type ####
 
-session.UnsubscribeByIDRequest = {
+The session.UnsubscribeByIDRequest type represents a request to
+remove event subscriptions identified by subscription IDs.
 
 ```cddl
 session.UnsubscribeByIDRequest = {
@@ -168,7 +234,8 @@ session.UnsubscribeByIDRequest = {
 
 #### The session.UnsubscribeByAttributesRequest Type ####
 
-session.UnsubscribeByAttributesRequest = {
+The session.UnsubscribeByAttributesRequest type represents a request to
+unsubscribe using subscription attributes.
 
 ```cddl
 session.UnsubscribeByAttributesRequest = {
@@ -180,6 +247,9 @@ session.UnsubscribeByAttributesRequest = {
 #### The session.status Command ####
 
 The session.status command returns information about
+whether a remote end is in a state in which it can create new sessions,
+but may additionally include arbitrary meta information that is specific
+to the implementation.
 
 ```cddl
 session.Status = (
@@ -199,6 +269,10 @@ session.StatusResult = {
 #### The session.new Command ####
 
 The session.new command allows creating a new
+BiDi session.
+
+> [!NOTE]
+> A session created this way will not be accessible via HTTP.
 
 ```cddl
 session.New = (
@@ -233,6 +307,7 @@ session.NewResult = {
 #### The session.end Command ####
 
 The session.end command ends the current
+/session.
 
 ```cddl
 session.End = (
@@ -249,6 +324,10 @@ session.EndResult = EmptyResult
 #### The session.subscribe Command ####
 
 The session.subscribe command enables certain events
+either globally or for a set of navigables.
+
+> [!IMPORTANT]
+> This needs to be generalized to work with realms too.
 
 ```cddl
 session.Subscribe = (
@@ -267,6 +346,10 @@ session.SubscribeResult = {
 #### The session.unsubscribe Command ####
 
 The session.unsubscribe command disables events
+either globally or for a set of navigables.
+
+> [!IMPORTANT]
+> This needs to be generalised to work with realms too.
 
 ```cddl
 session.Unsubscribe = (
@@ -285,11 +368,12 @@ session.UnsubscribeResult = EmptyResult
 ## The browser Module ##
 
 The browser module contains commands for
+managing the remote end browser process.
 
 
 #### The browser.ClientWindow Type ####
 
-browser.ClientWindow = text;
+The browser.ClientWindow uniquely identifies a client window.
 
 ```cddl
 browser.ClientWindow = text;
@@ -298,7 +382,8 @@ browser.ClientWindow = text;
 
 #### The browser.ClientWindowInfo Type ####
 
-browser.ClientWindowInfo = {
+The browser.ClientWindowInfo type represents properties of a
+client window.
 
 ```cddl
 browser.ClientWindowInfo = {
@@ -315,7 +400,7 @@ browser.ClientWindowInfo = {
 
 #### The browser.UserContext Type ####
 
-browser.UserContext = text;
+The browser.UserContext unique identifies a user context.
 
 ```cddl
 browser.UserContext = text;
@@ -324,7 +409,8 @@ browser.UserContext = text;
 
 #### The browser.UserContextInfo Type ####
 
-browser.UserContextInfo = {
+The browser.UserContextInfo type represents properties of a user
+context.
 
 ```cddl
 browser.UserContextInfo = {
@@ -336,6 +422,7 @@ browser.UserContextInfo = {
 #### The browser.close Command ####
 
 The browser.close command terminates all
+WebDriver sessions and cleans up automation state in the remote browser instance.
 
 ```cddl
 browser.Close = (
@@ -352,6 +439,7 @@ browser.CloseResult = EmptyResult
 #### The browser.createUserContext Command ####
 
 The browser.createUserContext command creates a
+user context.
 
 ```cddl
 browser.CreateUserContext = (
@@ -374,6 +462,7 @@ browser.CreateUserContextResult = browser.UserContextInfo
 #### The browser.getClientWindows Command ####
 
 The browser.getClientWindows command returns a
+list of client windows.
 
 ```cddl
 browser.GetClientWindows = (
@@ -392,6 +481,7 @@ browser.GetClientWindowsResult = {
 #### The browser.getUserContexts Command ####
 
 The browser.getUserContexts command returns a
+list of user contexts.
 
 ```cddl
 browser.GetUserContexts = (
@@ -410,6 +500,8 @@ browser.GetUserContextsResult = {
 #### The browser.removeUserContext Command ####
 
 The browser.removeUserContext command closes a
+user context and all navigables in it without running
+beforeunload handlers.
 
 ```cddl
 browser.RemoveUserContext = (
@@ -430,6 +522,7 @@ browser.RemoveUserContextResult = EmptyResult
 #### The browser.setClientWindowState Command ####
 
 The browser.setClientWindowState command sets the
+dimensions of a client window.
 
 ```cddl
 browser.SetClientWindowState = (
@@ -463,6 +556,8 @@ browser.SetClientWindowStateResult = browser.ClientWindowInfo
 #### The browser.setDownloadBehavior Command ####
 
 A download behavior struct is a struct with:
+* struct/item named allowed which is a boolean;
+* struct/item named destinationFolder which is a string or null.
 
 ```cddl
 browser.SetDownloadBehavior = (
@@ -500,11 +595,22 @@ browser.SetDownloadBehaviorResult = EmptyResult
 ## The browsingContext Module ##
 
 The browsingContext module contains commands and
+events relating to /navigables.
+
+> [!NOTE]
+> For historic reasons this module is called browsingContext
+> rather than navigable, and the protocol uses the term
+> context to refer to navigables, particularly as a field in command
+> and response parameters.
 
 
 #### The browsingContext.BrowsingContext Type ####
 
-{^remote end definition^} and {^local end definition^}
+Each /navigable has an associated navigable id,
+which is a string uniquely identifying that navigable. This is
+implicitly set when the navigable is created. For navigables with an
+associated WebDriver window handle the /navigable id must be the
+same as the window handle.
 
 ```cddl
 browsingContext.BrowsingContext = text;
@@ -513,7 +619,15 @@ browsingContext.BrowsingContext = text;
 
 #### The browsingContext.Info Type ####
 
-{^local end definition^}
+browsingContext.Info = {
+ children: browsingContext.InfoList / null,
+ clientWindow: browser.ClientWindow,
+ context: browsingContext.BrowsingContext,
+ originalOpener: browsingContext.BrowsingContext / null,
+ url: text,
+ userContext: browser.UserContext,
+ ? parent: browsingContext.BrowsingContext / null,
+}
 
 ```cddl
 browsingContext.InfoList = [*browsingContext.Info]
@@ -532,7 +646,13 @@ browsingContext.Info = {
 
 #### The browsingContext.Locator Type ####
 
-{^remote end definition^} and {^local end definition^}
+browsingContext.AccessibilityLocator = {
+ type: "accessibility",
+ value: {
+ ? name: text,
+ ? role: text,
+ }
+}
 
 ```cddl
 browsingContext.Locator = (
@@ -580,7 +700,8 @@ browsingContext.XPathLocator = {
 
 #### The browsingContext.Navigation Type ####
 
-{^remote end definition^} and {^local end definition^}
+The browsingContext.Navigation type is a unique string identifying an ongoing
+navigation.
 
 ```cddl
 browsingContext.Navigation = text;
@@ -589,7 +710,7 @@ browsingContext.Navigation = text;
 
 #### The browsingContext.Download Type ####
 
-{^remote end definition^} and {^local end definition^}
+The browsingContext.Download type is a unique string identifying a download.
 
 ```cddl
 browsingContext.Download = text;
@@ -598,7 +719,9 @@ browsingContext.Download = text;
 
 #### The browsingContext.NavigationInfo Type ####
 
-{^local end definition^}:
+browsingContext.NavigationInfo = {
+ browsingContext.BaseNavigationInfo
+}
 
 ```cddl
 browsingContext.BaseNavigationInfo = (
@@ -617,7 +740,8 @@ browsingContext.NavigationInfo = {
 
 #### The browsingContext.ReadinessState Type ####
 
-browsingContext.ReadinessState = "none" / "interactive" / "complete"
+The browsingContext.ReadinessState type represents the stage of
+document loading at which a navigation command will return.
 
 ```cddl
 browsingContext.ReadinessState = "none" / "interactive" / "complete"
@@ -626,7 +750,8 @@ browsingContext.ReadinessState = "none" / "interactive" / "complete"
 
 #### The browsingContext.UserPromptType Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The browsingContext.UserPromptType type represents the possible user
+prompt types.
 
 ```cddl
 browsingContext.UserPromptType = "alert" / "beforeunload" / "confirm" / "prompt";
@@ -656,6 +781,12 @@ browsingContext.ActivateResult = EmptyResult
 #### The browsingContext.captureScreenshot Command ####
 
 The browsingContext.captureScreenshot command
+captures an image of the given navigable, and returns it as a
+Base64-encoded string.
+
+> [!IMPORTANT]
+> This ought to be integrated into the update
+>  rendering algorithm in some more explicit way.
 
 ```cddl
 browsingContext.CaptureScreenshot = (
@@ -704,6 +835,7 @@ browsingContext.CaptureScreenshotResult = {
 #### The browsingContext.close Command ####
 
 The browsingContext.close command closes a
+/top-level traversable.
 
 ```cddl
 browsingContext.Close = (
@@ -725,6 +857,8 @@ browsingContext.CloseResult = EmptyResult
 #### The browsingContext.create Command ####
 
 The browsingContext.create command creates a new
+/navigable, either in a new tab or in a new window, and returns its
+navigable id.
 
 ```cddl
 browsingContext.Create = (
@@ -753,6 +887,8 @@ browsingContext.CreateResult = {
 #### The browsingContext.getTree Command ####
 
 The browsingContext.getTree command returns a
+tree of all descendent navigables including the given parent itself,
+or all top-level contexts when no parent is provided.
 
 ```cddl
 browsingContext.GetTree = (
@@ -776,6 +912,7 @@ browsingContext.GetTreeResult = {
 #### The browsingContext.handleUserPrompt Command ####
 
 The browsingContext.handleUserPrompt
+command allows closing an open prompt
 
 ```cddl
 browsingContext.HandleUserPrompt = (
@@ -798,6 +935,7 @@ browsingContext.HandleUserPromptResult = EmptyResult
 #### The browsingContext.locateNodes Command ####
 
 The browsingContext.locateNodes command returns a
+list of all nodes matching the specified locator.
 
 ```cddl
 browsingContext.LocateNodes = (
@@ -824,6 +962,7 @@ browsingContext.LocateNodesResult = {
 #### The browsingContext.navigate Command ####
 
 The browsingContext.navigate command navigates a
+navigable to the given URL.
 
 ```cddl
 browsingContext.Navigate = (
@@ -849,6 +988,8 @@ browsingContext.NavigateResult = {
 #### The browsingContext.print Command ####
 
 The browsingContext.print command
+creates a paginated representation of a document, and returns it as a
+PDF document represented as a Base64-encoded string.
 
 ```cddl
 browsingContext.Print = (
@@ -892,6 +1033,7 @@ browsingContext.PrintResult = {
 #### The browsingContext.reload Command ####
 
 The browsingContext.reload command reloads a
+navigable.
 
 ```cddl
 browsingContext.Reload = (
@@ -914,6 +1056,9 @@ browsingContext.ReloadResult = browsingContext.NavigateResult
 #### The browsingContext.setBypassCSP Command ####
 
 The browsingContext.setBypassCSP command allows bypassing Content Security Policy enforcement.
+
+> [!NOTE]
+> When CSP bypass is enabled, all CSP directives are bypassed, including those that would normally block eval(), new Function(), inline scripts, and resource loading.
 
 ```cddl
 browsingContext.SetBypassCSP = (
@@ -964,6 +1109,13 @@ browsingContext.SetViewportResult = EmptyResult
 #### The browsingContext.startScreencast Command ####
 
 The browsingContext.startScreencast command
+starts the screencast of a given navigable and writes it to a file.
+
+> [!NOTE]
+> The remote end creates and writes the screencast file, but does not delete it.
+> Cleaning up the file is left to the local end. In some configurations this might not be
+> possible — for example, if the remote end has read/write access to the filesystem but
+> the local end has only read-only access.
 
 ```cddl
 browsingContext.StartScreencast = (
@@ -1000,6 +1152,7 @@ browsingContext.Screencast = text
 #### The browsingContext.stopScreencast Command ####
 
 The browsingContext.stopScreencast command
+stops the screencast.
 
 ```cddl
 browsingContext.StopScreencast = (
@@ -1023,6 +1176,7 @@ browsingContext.StopScreencastResult = {
 #### The browsingContext.traverseHistory Command ####
 
 The browsingContext.traverseHistory command
+traverses the history of a given navigable by a delta.
 
 ```cddl
 browsingContext.TraverseHistory = (
@@ -1043,8 +1197,6 @@ browsingContext.TraverseHistoryResult = EmptyResult
 
 #### The browsingContext.contextCreated Event ####
 
-browsingContext.ContextCreated = (
-
 ```cddl
 browsingContext.ContextCreated = (
          method: "browsingContext.contextCreated",
@@ -1054,8 +1206,6 @@ browsingContext.ContextCreated = (
 
 
 #### The browsingContext.contextDestroyed Event ####
-
-browsingContext.ContextDestroyed = (
 
 ```cddl
 browsingContext.ContextDestroyed = (
@@ -1067,8 +1217,6 @@ browsingContext.ContextDestroyed = (
 
 #### The browsingContext.navigationStarted Event ####
 
-browsingContext.NavigationStarted = (
-
 ```cddl
 browsingContext.NavigationStarted = (
          method: "browsingContext.navigationStarted",
@@ -1078,8 +1226,6 @@ browsingContext.NavigationStarted = (
 
 
 #### The browsingContext.fragmentNavigated Event ####
-
-browsingContext.FragmentNavigated = (
 
 ```cddl
 browsingContext.FragmentNavigated = (
@@ -1091,7 +1237,12 @@ browsingContext.FragmentNavigated = (
 
 #### The browsingContext.historyUpdated Event ####
 
-browsingContext.HistoryUpdated = (
+browsingContext.HistoryUpdatedParameters = {
+ context: browsingContext.BrowsingContext,
+ timestamp: js-uint,
+ url: text,
+ ? userContext: browser.UserContext
+ }
 
 ```cddl
 browsingContext.HistoryUpdated = (
@@ -1110,8 +1261,6 @@ browsingContext.HistoryUpdated = (
 
 #### The browsingContext.domContentLoaded Event ####
 
-browsingContext.DomContentLoaded = (
-
 ```cddl
 browsingContext.DomContentLoaded = (
          method: "browsingContext.domContentLoaded",
@@ -1121,8 +1270,6 @@ browsingContext.DomContentLoaded = (
 
 
 #### The browsingContext.load Event ####
-
-browsingContext.Load = (
 
 ```cddl
 browsingContext.Load = (
@@ -1134,7 +1281,11 @@ browsingContext.Load = (
 
 #### The browsingContext.downloadWillBegin Event ####
 
-browsingContext.DownloadWillBegin = (
+browsingContext.DownloadWillBeginParams = {
+ download: browsingContext.Download,
+ suggestedFilename: text,
+ browsingContext.BaseNavigationInfo
+ }
 
 ```cddl
 browsingContext.DownloadWillBegin = (
@@ -1152,7 +1303,12 @@ browsingContext.DownloadWillBegin = (
 
 #### The browsingContext.downloadEnd Event ####
 
-browsingContext.DownloadEnd = (
+browsingContext.DownloadEndParams = {
+ (
+ browsingContext.DownloadCanceledParams //
+ browsingContext.DownloadCompleteParams
+ )
+ }
 
 ```cddl
 browsingContext.DownloadEnd = (
@@ -1184,8 +1340,6 @@ browsingContext.DownloadEnd = (
 
 #### The browsingContext.navigationAborted Event ####
 
-browsingContext.NavigationAborted = (
-
 ```cddl
 browsingContext.NavigationAborted = (
          method: "browsingContext.navigationAborted",
@@ -1195,8 +1349,6 @@ browsingContext.NavigationAborted = (
 
 
 #### The browsingContext.navigationCommitted Event ####
-
-browsingContext.NavigationCommitted = (
 
 ```cddl
 browsingContext.NavigationCommitted = (
@@ -1208,8 +1360,6 @@ browsingContext.NavigationCommitted = (
 
 #### The browsingContext.navigationFailed Event ####
 
-browsingContext.NavigationFailed = (
-
 ```cddl
 browsingContext.NavigationFailed = (
          method: "browsingContext.navigationFailed",
@@ -1220,7 +1370,13 @@ browsingContext.NavigationFailed = (
 
 #### The browsingContext.userPromptClosed Event ####
 
-browsingContext.UserPromptClosed = (
+browsingContext.UserPromptClosedParameters = {
+ context: browsingContext.BrowsingContext,
+ accepted: bool,
+ type: browsingContext.UserPromptType,
+ ? userContext: browser.UserContext,
+ ? userText: text
+ }
 
 ```cddl
 browsingContext.UserPromptClosed = (
@@ -1240,7 +1396,14 @@ browsingContext.UserPromptClosed = (
 
 #### The browsingContext.userPromptOpened Event ####
 
-browsingContext.UserPromptOpened = (
+browsingContext.UserPromptOpenedParameters = {
+ context: browsingContext.BrowsingContext,
+ handler: session.UserPromptHandlerType,
+ message: text,
+ type: browsingContext.UserPromptType,
+ ? userContext: browser.UserContext,
+ ? defaultValue: text
+ }
 
 ```cddl
 browsingContext.UserPromptOpened = (
@@ -1262,11 +1425,16 @@ browsingContext.UserPromptOpened = (
 ## The emulation Module ##
 
 The emulation module contains commands and events
+relating to emulation of browser APIs.
 
 
 #### The emulation.setForcedColorsModeThemeOverride Command ####
 
 The emulation.setForcedColorsModeThemeOverride command modifies
+forced colors mode theming characteristics on the given top-level traversables or user contexts.
+
+> [!NOTE]
+> Check out the ForcedColorsModeAutomationTheme for the corresponding enum mapping in the CSS specification.
 
 ```cddl
 emulation.SetForcedColorsModeThemeOverride = (
@@ -1330,6 +1498,7 @@ emulation.SetGeolocationOverrideResult = EmptyResult
 #### The emulation.setLocaleOverride Command ####
 
 The emulation.setLocaleOverride command modifies
+locale on the given top-level traversables or user contexts.
 
 ```cddl
 emulation.SetLocaleOverride = (
@@ -1352,6 +1521,7 @@ emulation.SetLocaleOverrideResult = EmptyResult
 #### The emulation.setMediaFeaturesOverride Command ####
 
 The emulation.setMediaFeaturesOverride command
+allows overriding the values of various media features.
 
 ```cddl
 emulation.SetMediaFeaturesOverride = (
@@ -1381,6 +1551,8 @@ emulation.SetMediaFeaturesOverrideResult = EmptyResult
 #### The emulation.setNetworkConditions Command ####
 
 The emulation.setNetworkConditions command
+emulates specific network conditions for the given browsing context or for a user
+context.
 
 ```cddl
 emulation.SetNetworkConditions = (
@@ -1409,6 +1581,7 @@ emulation.SetNetworkConditionsResult = EmptyResult
 #### The emulation.setScreenSettingsOverride Command ####
 
 The emulation.setScreenSettingsOverride command
+emulates web-exposed screen area and web-exposed available screen area of the given top-level traversables or user contexts.
 
 ```cddl
 emulation.SetScreenSettingsOverride = (
@@ -1436,6 +1609,7 @@ emulation.SetScreenSettingsOverrideResult = EmptyResult
 #### The emulation.setScreenOrientationOverride Command ####
 
 The emulation.setScreenOrientationOverride command
+emulates screen orientation of the given top-level traversables or user contexts.
 
 ```cddl
 emulation.SetScreenOrientationOverride = (
@@ -1466,6 +1640,7 @@ emulation.SetScreenOrientationOverrideResult = EmptyResult
 #### The emulation.setUserAgentOverride Command ####
 
 The emulation.setUserAgentOverride command modifies
+User-Agent on the given top-level traversables, user contexts, or globally.
 
 ```cddl
 emulation.SetUserAgentOverride = (
@@ -1488,6 +1663,7 @@ emulation.SetUserAgentOverrideResult = EmptyResult
 #### The emulation.setViewportMetaOverride Command ####
 
 The emulation.setViewportMetaOverride command modifies whether the browser respects
+the &lt;meta name=viewport&gt; tag.
 
 ```cddl
 emulation.SetViewportMetaOverride = (
@@ -1510,6 +1686,10 @@ emulation.SetViewportMetaOverrideResult = EmptyResult
 #### The emulation.setScriptingEnabled Command ####
 
 The emulation.setScriptingEnabled command emulates
+disabling JavaScript on web pages.
+
+> [!NOTE]
+> only emulation of disabled Javascript is supported.
 
 ```cddl
 emulation.SetScriptingEnabled = (
@@ -1532,6 +1712,7 @@ emulation.SetScriptingEnabledResult = EmptyResult
 #### The emulation.setScrollbarTypeOverride Command ####
 
 The emulation.setScrollbarTypeOverride command modifies
+scrollbar type on the given top-level traversables, user contexts or globally.
 
 ```cddl
 emulation.SetScrollbarTypeOverride = (
@@ -1554,6 +1735,7 @@ emulation.SetScrollbarTypeOverrideResult = EmptyResult
 #### The emulation.setTimezoneOverride Command ####
 
 The emulation.setTimezoneOverride command modifies
+timezone on the given top-level traversables or user contexts.
 
 ```cddl
 emulation.SetTimezoneOverride = (
@@ -1576,6 +1758,7 @@ emulation.SetTimezoneOverrideResult = EmptyResult
 #### The emulation.setTouchOverride Command ####
 
 The emulation.setTouchOverride command emulates
+enabled touch input on web pages.
 
 ```cddl
 emulation.SetTouchOverride = (
@@ -1598,11 +1781,10 @@ emulation.SetTouchOverrideResult = EmptyResult
 ## The network Module ##
 
 The network module contains commands and events
+relating to network requests.
 
 
 #### The network.AuthChallenge Type ####
-
-network.AuthChallenge = {
 
 ```cddl
 network.AuthChallenge = {
@@ -1614,7 +1796,8 @@ network.AuthChallenge = {
 
 #### The network.AuthCredentials Type ####
 
-network.AuthCredentials = {
+The network.AuthCredentials type represents the response to a
+request for authorization credentials.
 
 ```cddl
 network.AuthCredentials = {
@@ -1627,7 +1810,12 @@ network.AuthCredentials = {
 
 #### The network.BaseParameters Type ####
 
-network.BaseParameters = (
+The network.BaseParameters type is an abstract type representing
+the data that's common to all network events.
+
+> [!IMPORTANT]
+> Consider including the `sharedId` of the document node that initiated the
+> request in addition to the context.
 
 ```cddl
 network.BaseParameters = (
@@ -1645,7 +1833,10 @@ network.BaseParameters = (
 
 #### The network.BytesValue Type ####
 
-network.BytesValue = network.StringValue / network.Base64Value;
+network.StringValue = {
+ type: "string",
+ value: text,
+}
 
 ```cddl
 network.BytesValue = network.StringValue / network.Base64Value;
@@ -1664,7 +1855,7 @@ network.Base64Value = {
 
 #### The network.Collector Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The network.Collector type represents the id of a network/collector.
 
 ```cddl
 network.Collector = text
@@ -1673,7 +1864,12 @@ network.Collector = text
 
 #### The network.CollectorType Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The network.CollectorType type represents the different types of data collectors
+that can be added.
+
+> [!NOTE]
+> In the future we might also support the "stream" collector type for clients
+> which want to read the data gathered by a given collector via a stream.
 
 ```cddl
 network.CollectorType = "blob"
@@ -1682,7 +1878,7 @@ network.CollectorType = "blob"
 
 #### The network.Cookie Type ####
 
-{^Remote end definition^} and {^local end definition^}
+network.SameSite = "strict" / "lax" / "none" / "default"
 
 ```cddl
 network.SameSite = "strict" / "lax" / "none" / "default"
@@ -1708,7 +1904,8 @@ network.Cookie = {
 
 #### The network.CookieHeader Type ####
 
-{^Remote end definition^}
+The network.CookieHeader type represents the subset of cookie data
+that's in a Cookie request header.
 
 ```cddl
 network.CookieHeader = {
@@ -1720,7 +1917,8 @@ network.CookieHeader = {
 
 #### The network.DataType Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The network.DataType type represents the different types of network data
+that can be collected.
 
 ```cddl
 network.DataType = "request" / "response"
@@ -1729,7 +1927,9 @@ network.DataType = "request" / "response"
 
 #### The network.FetchTimingInfo Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The network.FetchTimingInfo type represents the time of each part
+of the request, relative to the time origin of the /request's
+request/client.
 
 ```cddl
 network.FetchTimingInfo = {
@@ -1754,7 +1954,7 @@ network.FetchTimingInfo = {
 
 #### The network.Header Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The network.Header type represents a single request header.
 
 ```cddl
 network.Header = {
@@ -1766,7 +1966,23 @@ network.Header = {
 
 #### The network.Initiator Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The network.Initiator type represents the source of a network
+request.
+
+> [!NOTE]
+> The type field is included in the definition for backwards
+> compatibility, but is no longer set by the get the initiator steps, and will
+> be removed in a future revision of this specification. Its use is expected to be
+> replaced by initiatorType and destination on
+> network.RequestData.
+> [!NOTE]
+> The request field is included in the definition for backwards
+> compatibility, but is no longer set by the get the initiator steps, and will
+> be removed in a future revision of this specification. The
+> network.Initiator is included in the
+> network.BeforeRequestSentParameters which also contain the same
+> request id, making this information redundant. See
+> [[#type-network-BaseParameters]].
 
 ```cddl
 network.Initiator = {
@@ -1781,7 +1997,7 @@ network.Initiator = {
 
 #### The network.Intercept Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The network.Intercept type represents the id of a network intercept.
 
 ```cddl
 network.Intercept = text
@@ -1790,7 +2006,9 @@ network.Intercept = text
 
 #### The network.Request Type ####
 
-{^Remote end definition^} and {^local end definition^}
+Each network request has an associated request id, which is a
+string uniquely identifying that request. The identifier for a request resulting from a
+redirect matches that of the request that initiated it.
 
 ```cddl
 network.Request = text;
@@ -1799,7 +2017,7 @@ network.Request = text;
 
 #### The network.RequestData Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The network.RequestData type represents an ongoing network request.
 
 ```cddl
 network.RequestData = {
@@ -1819,7 +2037,8 @@ network.RequestData = {
 
 #### The network.ResponseContent Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The network.ResponseContent type represents the decoded response to
+a network request.
 
 ```cddl
 network.ResponseContent = {
@@ -1830,7 +2049,8 @@ network.ResponseContent = {
 
 #### The network.ResponseData Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The network.ResponseData type represents the response to a network
+request.
 
 ```cddl
 network.ResponseData = {
@@ -1852,7 +2072,8 @@ network.ResponseData = {
 
 #### The network.SetCookieHeader Type ####
 
-{^Remote end definition^}
+The network.SetCookieHeader represents the data in a
+Set-Cookie response header.
 
 ```cddl
 <!--
@@ -1875,7 +2096,19 @@ network.SetCookieHeader = {
 
 #### The network.UrlPattern Type ####
 
-{^Remote end definition^}
+network.UrlPatternPattern = {
+ type: "pattern",
+ ?protocol: text,
+ ?hostname: text,
+ ?port: text,
+ ?pathname: text,
+ ?search: text,
+}
+
+> [!NOTE]
+> This syntax is designed with future extensibility in mind. In particular
+> the syntax forbids characters that are treated specially in the [[URLPattern]]
+> specification. These can be escaped by prefixing them with a U+005C (\) character.
 
 ```cddl
 network.UrlPattern = (
@@ -1903,6 +2136,7 @@ network.UrlPatternString = {
 #### The network.addDataCollector Command ####
 
 The network.addDataCollector adds a
+network/collector.
 
 ```cddl
 network.AddDataCollector = (
@@ -1929,6 +2163,7 @@ network.AddDataCollectorResult = {
 #### The network.addIntercept Command ####
 
 The network.addIntercept command adds a
+network intercept.
 
 ```cddl
 network.AddIntercept = (
@@ -1956,6 +2191,7 @@ network.AddInterceptResult = {
 #### The network.continueRequest Command ####
 
 The network.continueRequest command continues a request
+that's blocked by a network intercept.
 
 ```cddl
 network.ContinueRequest = (
@@ -1981,6 +2217,9 @@ network.ContinueRequestResult = EmptyResult
 #### The network.continueResponse Command ####
 
 The network.continueResponse command continues a
+response that's blocked by a network intercept. It can be called in the
+responseStarted phase, to modify the status and headers of the
+response, but still provide the network response body.
 
 ```cddl
 network.ContinueResponse = (
@@ -2006,6 +2245,8 @@ network.ContinueResponseResult = EmptyResult
 #### The network.continueWithAuth Command ####
 
 The network.continueWithAuth command continues a
+response that's blocked by a network intercept at the
+authRequired phase.
 
 ```cddl
 network.ContinueWithAuth = (
@@ -2037,6 +2278,7 @@ network.ContinueWithAuthResult = EmptyResult
 #### The network.disownData Command ####
 
 The network.disownData command releases a
+collected network data for a given network/collector.
 
 ```cddl
 network.DisownData = (
@@ -2059,6 +2301,7 @@ network.DisownDataResult = EmptyResult
 #### The network.failRequest Command ####
 
 The network.failRequest command fails a
+fetch that's blocked by a network intercept.
 
 ```cddl
 network.FailRequest = (
@@ -2079,6 +2322,7 @@ network.FailRequestResult = EmptyResult
 #### The network.getData Command ####
 
 The network.getData command retrieves a
+network data if it is available.
 
 ```cddl
 network.GetData = (
@@ -2104,6 +2348,12 @@ network.GetDataResult = {
 #### The network.provideResponse Command ####
 
 The network.provideResponse command continues a
+request that's blocked by a network intercept, by providing a complete
+response.
+
+> [!NOTE]
+> This will not prevent the request going through the normal request
+> lifecycle, and therefore emitting other events as it progresses.
 
 ```cddl
 network.ProvideResponse = (
@@ -2129,6 +2379,7 @@ network.ProvideResponseResult = EmptyResult
 #### The network.removeDataCollector Command ####
 
 The network.removeDataCollector command removes a
+network/collector.
 
 ```cddl
 network.RemoveDataCollector = (
@@ -2149,6 +2400,7 @@ network.RemoveDataCollectorResult = EmptyResult
 #### The network.removeIntercept Command ####
 
 The network.removeIntercept command removes a
+network intercept.
 
 ```cddl
 network.RemoveIntercept = (
@@ -2169,6 +2421,7 @@ network.RemoveInterceptResult = EmptyResult
 #### The network.setCacheBehavior Command ####
 
 The network.setCacheBehavior command configures
+the network cache behavior for certain requests.
 
 ```cddl
 network.SetCacheBehavior = (
@@ -2190,6 +2443,7 @@ network.SetCacheBehaviorResult = EmptyResult
 #### The network.setExtraHeaders Command ####
 
 The network.setExtraHeaders command allows
+specifying headers that will extend, or overwrite, existing request headers.
 
 ```cddl
 network.SetExtraHeaders = (
@@ -2211,7 +2465,10 @@ network.SetExtraHeadersResult = EmptyResult
 
 #### The network.authRequired Event ####
 
-network.AuthRequired = (
+network.AuthRequiredParameters = {
+ network.BaseParameters,
+ response: network.ResponseData
+ }
 
 ```cddl
 network.AuthRequired = (
@@ -2228,7 +2485,10 @@ network.AuthRequired = (
 
 #### The network.beforeRequestSent Event ####
 
-network.BeforeRequestSent = (
+network.BeforeRequestSentParameters = {
+ network.BaseParameters,
+ ? initiator: network.Initiator,
+ }
 
 ```cddl
 network.BeforeRequestSent = (
@@ -2245,7 +2505,10 @@ network.BeforeRequestSent = (
 
 #### The network.fetchError Event ####
 
-network.FetchError = (
+network.FetchErrorParameters = {
+ network.BaseParameters,
+ errorText: text,
+ }
 
 ```cddl
 network.FetchError = (
@@ -2262,7 +2525,10 @@ network.FetchError = (
 
 #### The network.responseCompleted Event ####
 
-network.ResponseCompleted = (
+network.ResponseCompletedParameters = {
+ network.BaseParameters,
+ response: network.ResponseData,
+ }
 
 ```cddl
 network.ResponseCompleted = (
@@ -2279,7 +2545,10 @@ network.ResponseCompleted = (
 
 #### The network.responseStarted Event ####
 
-network.ResponseStarted = (
+network.ResponseStartedParameters = {
+ network.BaseParameters,
+ response: network.ResponseData,
+ }
 
 ```cddl
 network.ResponseStarted = (
@@ -2297,11 +2566,13 @@ network.ResponseStarted = (
 ## The script Module ##
 
 The script module contains commands and events
+relating to script realms and execution.
 
 
 #### The script.Channel Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The script.Channel type represents the id of a specific channel
+used to send custom messages from the remote end to the local end.
 
 ```cddl
 script.Channel = text;
@@ -2310,7 +2581,11 @@ script.Channel = text;
 
 #### The script.ChannelValue Type ####
 
-{^Remote end definition^}
+script.ChannelProperties = {
+ channel: script.Channel,
+ ? serializationOptions: script.SerializationOptions,
+ ? ownership: script.ResultOwnership,
+}
 
 ```cddl
 script.ChannelValue = {
@@ -2328,7 +2603,11 @@ script.ChannelProperties = {
 
 #### The script.EvaluateResult Type ####
 
-{^Remote end definition^} and {^local end definition^}
+script.EvaluateResultSuccess = {
+ type: "success",
+ result: script.RemoteValue,
+ realm: script.Realm
+}
 
 ```cddl
 script.EvaluateResult = (
@@ -2352,7 +2631,7 @@ script.EvaluateResultException = {
 
 #### The script.ExceptionDetails Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The script.ExceptionDetails type represents a JavaScript exception.
 
 ```cddl
 script.ExceptionDetails = {
@@ -2367,7 +2646,8 @@ script.ExceptionDetails = {
 
 #### The script.Handle Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The script.Handle type represents a handle to an object owned by
+the ECMAScript runtime. The handle is only valid in a specific Realm.
 
 ```cddl
 script.Handle = text;
@@ -2376,7 +2656,9 @@ script.Handle = text;
 
 #### The script.InternalId Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The script.InternalId type represents the id of
+a previously serialized script.RemoteValue during
+serialize as a remote value|serialization.
 
 ```cddl
 script.InternalId = text;
@@ -2385,7 +2667,7 @@ script.InternalId = text;
 
 #### The script.LocalValue Type ####
 
-{^Remote end definition^}
+script.ListLocalValue = [*script.LocalValue];
 
 ```cddl
 script.LocalValue = (
@@ -2443,7 +2725,8 @@ script.SetLocalValue = {
 
 #### The script.PreloadScript Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The script.PreloadScript type represents a handle to a script that will run
+on realm creation.
 
 ```cddl
 script.PreloadScript = text;
@@ -2452,7 +2735,13 @@ script.PreloadScript = text;
 
 #### The script.Realm Type ####
 
-{^Remote end definition^} and {^local end definition^}
+Each realm has an associated realm id, which is a string
+uniquely identifying that realm. This is implicitly set when the realm is
+created.
+
+> [!NOTE]
+> this is to ensure that users do not rely on implementation-specific
+> relationships between different ids.
 
 ```cddl
 script.Realm = text;
@@ -2461,7 +2750,9 @@ script.Realm = text;
 
 #### The script.PrimitiveProtocolValue Type ####
 
-{^Remote end definition^} and {^local end definition^}
+script.UndefinedValue = {
+ type: "undefined",
+}
 
 ```cddl
 script.PrimitiveProtocolValue = (
@@ -2507,7 +2798,14 @@ script.BigIntValue = {
 
 #### The script.RealmInfo Type ####
 
-{^Local end definition^}
+script.BaseRealmInfo = (
+ realm: script.Realm,
+ origin: text
+)
+
+> [!NOTE]
+> there's a 1:1 relationship between the script.RealmInfo
+>  variants and values of script.RealmType.
 
 ```cddl
 script.RealmInfo = (
@@ -2574,7 +2872,7 @@ script.WorkletRealmInfo = {
 
 #### The script.RealmType Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The script.RealmType type represents the different types of Realm.
 
 ```cddl
 script.RealmType = "window" / "dedicated-worker" / "shared-worker" / "service-worker" /
@@ -2584,7 +2882,19 @@ script.RealmType = "window" / "dedicated-worker" / "shared-worker" / "service-wo
 
 #### The script.RemoteReference Type ####
 
-{^Remote end definition^}
+script.SharedReference = {
+ sharedId: script.SharedId
+ 
+ ? handle: script.Handle,
+ Extensible
+}
+
+> [!IMPORTANT]
+> handle "stale object reference" case.
+> [!NOTE]
+> if the provided reference has both handle and
+> sharedId, the algorithm will ignore handle and respect
+> only sharedId.
 
 ```cddl
 <!-- This is specifically ordered in the order in which matches need to be -->
@@ -2613,7 +2923,20 @@ script.RemoteObjectReference = {
 
 #### The script.RemoteValue Type ####
 
-{^Remote end definition^} and {^local end definition^}
+script.ListRemoteValue = [*script.RemoteValue];
+
+> [!IMPORTANT]
+> Add WASM types?
+> [!IMPORTANT]
+> Should WindowProxy get attributes in a similar style to Node?
+> [!IMPORTANT]
+> handle String / Number / etc. wrapper objects specially?
+> [!IMPORTANT]
+> reconsider mirror objects' lifecycle.
+> [!NOTE]
+> mirror objects do not keep the original object alive in the runtime. If an
+> object is discarded in the runtime, subsequent attempts to access it via the
+> protocol will result in an error.
 
 ```cddl
 script.RemoteValue = (
@@ -2793,7 +3116,8 @@ script.WindowProxyProperties = {
 
 #### The script.ResultOwnership Type ####
 
-script.ResultOwnership = "root" / "none"
+The script.ResultOwnership specifies how the serialized value
+ownership will be treated.
 
 ```cddl
 script.ResultOwnership = "root" / "none"
@@ -2802,7 +3126,8 @@ script.ResultOwnership = "root" / "none"
 
 #### The script.SerializationOptions Type ####
 
-{^Remote end definition^}
+The script.SerializationOptions allows specifying how ECMAScript
+objects will be serialized.
 
 ```cddl
 script.SerializationOptions = {
@@ -2815,7 +3140,8 @@ script.SerializationOptions = {
 
 #### The script.SharedId Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The script.SharedId type represents a reference to a DOM Node that
+is usable in any realm (including Sandbox Realms).
 
 ```cddl
 script.SharedId = text;
@@ -2824,7 +3150,11 @@ script.SharedId = text;
 
 #### The script.StackFrame Type ####
 
-{^Remote end definition^} and {^local end definition^}
+A frame in a stack trace is represented by a StackFrame
+object. This has a url property, which represents the URL of the
+script, a functionName property which represents the name of the
+executing function, and lineNumber and columnNumber
+properties, which represent the line and column number of the executed code.
 
 ```cddl
 script.StackFrame = {
@@ -2838,7 +3168,13 @@ script.StackFrame = {
 
 #### The script.StackTrace Type ####
 
-{^Remote end definition^} and {^local end definition^}
+The script.StackTrace type represents the javascript stack at a point in
+script execution.
+
+> [!NOTE]
+> The details of how to get a list of stack frames, and the properties of
+> that list are underspecified, and therefore the details here are implementation
+> defined.
 
 ```cddl
 script.StackTrace = {
@@ -2849,7 +3185,9 @@ script.StackTrace = {
 
 #### The script.Source Type ####
 
-{^Local end definition^}
+The script.Source type represents a script.Realm with
+an optional browsingContext.BrowsingContext and related
+browser.UserContext in which a script related event occurred.
 
 ```cddl
 script.Source = {
@@ -2862,7 +3200,10 @@ script.Source = {
 
 #### The script.Target Type ####
 
-{^Remote end definition^}
+script.ContextTarget = {
+ context: browsingContext.BrowsingContext,
+ ? sandbox: text
+}
 
 ```cddl
 script.RealmTarget = {
@@ -2883,7 +3224,8 @@ script.Target = (
 
 #### The script.addPreloadScript Command ####
 
-The script.addPreloadScript command adds a [=preload
+The script.addPreloadScript command adds a preload
+script.
 
 ```cddl
 script.AddPreloadScript = (
@@ -2910,6 +3252,8 @@ script.AddPreloadScriptResult = {
 #### The script.disown Command ####
 
 The script.disown command disowns the given handles.
+This does not guarantee the handled object will be garbage collected, as there can be
+other handles or strong ECMAScript references.
 
 ```cddl
 script.Disown = (
@@ -2931,6 +3275,13 @@ script.DisownResult = EmptyResult
 #### The script.callFunction Command ####
 
 The script.callFunction command calls a provided
+function with given arguments in a given realm.
+
+> [!NOTE]
+> In case of an arrow function in functionDeclaration, the
+> this argument doesn't affect function's this binding.
+> [!IMPORTANT]
+> TODO: Add timeout argument as described in the script.evaluate.
 
 ```cddl
 script.CallFunction = (
@@ -2958,6 +3309,9 @@ script.CallFunctionResult = script.EvaluateResult
 #### The script.evaluate Command ####
 
 The script.evaluate command evaluates a provided
+script in a given realm. For convenience a navigable can be provided in
+place of a realm, in which case the realm used is the realm of the browsing
+context's active document.
 
 ```cddl
 script.Evaluate = (
@@ -2979,6 +3333,8 @@ script.Evaluate = (
 #### The script.getRealms Command ####
 
 The script.getRealms command returns a list of
+all realms, optionally filtered to realms of a specific type, or to the
+realm associated with a /navigable's active document.
 
 ```cddl
 script.GetRealms = (
@@ -3002,6 +3358,7 @@ script.GetRealmsResult = {
 #### The script.removePreloadScript Command ####
 
 The script.removePreloadScript command removes a
+preload script.
 
 ```cddl
 script.RemovePreloadScript = (
@@ -3021,7 +3378,11 @@ script.RemovePreloadScriptResult = EmptyResult
 
 #### The script.message Event ####
 
-script.Message = (
+script.MessageParameters = {
+ channel: script.Channel,
+ data: script.RemoteValue,
+ source: script.Source,
+ }
 
 ```cddl
 script.Message = (
@@ -3039,8 +3400,6 @@ script.Message = (
 
 #### The script.realmCreated Event ####
 
-script.RealmCreated = (
-
 ```cddl
 script.RealmCreated = (
          method: "script.realmCreated",
@@ -3051,7 +3410,9 @@ script.RealmCreated = (
 
 #### The script.realmDestroyed Event ####
 
-script.RealmDestroyed = (
+script.RealmDestroyedParameters = {
+ realm: script.Realm
+ }
 
 ```cddl
 script.RealmDestroyed = (
@@ -3068,11 +3429,12 @@ script.RealmDestroyed = (
 ## The storage Module ##
 
 The storage module contains functionality and
+events related to storage.
 
 
 #### The storage.PartitionKey Type ####
 
-{^Local end definition^}
+The storage.PartitionKey type represents a storage partition key.
 
 ```cddl
 storage.PartitionKey = {
@@ -3206,11 +3568,12 @@ storage.DeleteCookiesResult = {
 ## The log Module ##
 
 The log module contains functionality and events
+related to logging.
 
 
 #### The log.entryAdded Event ####
 
-log.EntryAdded = (
+The remote end event trigger is:
 
 ```cddl
 log.EntryAdded = (
@@ -3223,11 +3586,17 @@ log.EntryAdded = (
 ## The input Module ##
 
 The input module contains functionality for
+simulated user input.
 
 
 #### The input.performActions Command ####
 
 The input.performActions command performs a
+specified sequence of user input actions.
+
+> [!NOTE]
+> for a detailed description of the behavior of this command, see the
+> actions section of [[WEBDRIVER]].
 
 ```cddl
 input.PerformActions = (
@@ -3366,6 +3735,7 @@ input.PerformActionsResult = EmptyResult
 #### The input.releaseActions Command ####
 
 The input.releaseActions command resets the input
+state associated with the current session.
 
 ```cddl
 input.ReleaseActions = (
@@ -3386,6 +3756,7 @@ input.ReleaseActionsResult = EmptyResult
 #### The input.setFiles Command ####
 
 The input.setFiles command sets the files property of a given input element with type file
+to a set of file paths.
 
 ```cddl
 input.SetFiles = (
@@ -3407,7 +3778,12 @@ input.SetFilesResult = EmptyResult
 
 #### The input.fileDialogOpened Event ####
 
-input.FileDialogOpened = (
+input.FileDialogInfo = {
+ context: browsingContext.BrowsingContext,
+ ? userContext: browser.UserContext,
+ ? element: script.SharedReference,
+ multiple: bool,
+ }
 
 ```cddl
 input.FileDialogOpened = (
@@ -3427,11 +3803,12 @@ input.FileDialogOpened = (
 ## The webExtension Module ##
 
 The webExtension module contains functionality for
+managing and interacting with web extensions.
 
 
 #### The webExtension.Extension Type ####
 
-webExtension.Extension = text
+The webExtension.Extension type represents a web extension id within a remote end.
 
 ```cddl
 webExtension.Extension = text
@@ -3441,6 +3818,10 @@ webExtension.Extension = text
 #### The webExtension.install Command ####
 
 The webExtension.install command installs a web extension in the remote end.
+
+> [!NOTE]
+> Browsers might install the web extension only temporarily by default so
+> that they will be automatically uninstalled during the next shutdown.
 
 ```cddl
 webExtension.Install = (
