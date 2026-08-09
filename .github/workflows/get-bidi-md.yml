@@ -51,7 +51,6 @@ jobs:
         npm run build
 
     - name: Stitch Front-Matter and Rendered Markdown
-      node-version: '18'
       run: |
         mkdir -p final-compiled-markdown
         
