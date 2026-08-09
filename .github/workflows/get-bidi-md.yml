@@ -38,7 +38,6 @@ jobs:
     - name: Install Dependencies
       run: |
         cd mdn-yari
-        npm ci
         # Install a reliable utility to convert Yari's compiled HTML payload back to Markdown
         npm install turndown
 
