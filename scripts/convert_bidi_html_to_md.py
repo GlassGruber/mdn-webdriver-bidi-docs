@@ -18,8 +18,17 @@ def fetch_html(url: str) -> str:
     with urllib.request.urlopen(req) as response:
         return response.read().decode('utf-8')
 
+def find_top_section(elem):
+    """Individua il nodo <section> o il figlio diretto di <main>/<body> senza selezionare <main> stesso."""
+    curr = elem
+    while curr.parent and curr.parent.name not in ['main', 'body', 'html', '[document]']:
+        if curr.name == 'section':
+            return curr
+        curr = curr.parent
+    return curr
+
 def transform_and_clean_dom(soup: BeautifulSoup):
-    """Pulisce il DOM rimuovendo CSS, JS, TOC, metadati e troncando la specifica dalla Sezione 8 in poi."""
+    """Pulisce il DOM ed elimina le sezioni non necessarie senza svuotare il contenitore principale."""
     
     # 1. Rimuove tag di script, stili e meta-informazioni
     for tag in soup.find_all(['head', 'style', 'script', 'link', 'meta', 'svg', 'noscript']):
@@ -46,30 +55,15 @@ def transform_and_clean_dom(soup: BeautifulSoup):
         parent = h.find_parent(['nav', 'section', 'div']) or h
         parent.decompose()
 
-    # 4. Rimuove la sezione #abstract
-    abstract = soup.find(id='abstract') or soup.find('h2', string=re.compile(r'Abstract', re.I))
-    if abstract:
-        parent_abstract = abstract.find_parent('section') or abstract
-        parent_abstract.decompose()
-
-    # 5. Rimuove tutti gli elementi precedenti alla sezione #intro / Introduction
-    intro = soup.find(id='intro') or soup.find('h2', string=re.compile(r'Introduction', re.I))
+    # 4. Rimuove tutti gli elementi precedenti alla sezione #intro / Introduction (compresi Abstract e SOTD)
+    intro = soup.find(id='intro') or soup.find(lambda tag: tag.name in ['h1', 'h2', 'h3'] and 'Introduction' in tag.get_text())
     if intro:
-        top_intro = intro
-        while top_intro.parent and top_intro.parent.name not in ['body', 'html', '[document]']:
-            top_intro = top_intro.parent
-        
+        top_intro = find_top_section(intro)
         for prev in list(top_intro.previous_siblings):
             if hasattr(prev, 'decompose'):
                 prev.decompose()
 
-    # 6. Rimuove 'Status of this document' (#sotd)
-    sotd = soup.find(id='sotd') or soup.find('h2', string=re.compile(r'Status of this document', re.I))
-    if sotd:
-        parent = sotd.find_parent('section') or sotd
-        parent.decompose()
-
-    # 7. TRONCAMENTO DEFINITIVO: Rimuove la Sezione 8 (Patches) e tutti i nodi successivi fino alla fine del DOM
+    # 5. Rimuove la Sezione 8 (Patches) e tutti i nodi fratelli successivi fino alla fine del documento
     patches_elem = (
         soup.find(id='patches') or 
         soup.find(lambda tag: tag.name in ['h1', 'h2', 'h3', 'section'] and 'Patches to Other Specifications' in tag.get_text()) or
@@ -77,19 +71,15 @@ def transform_and_clean_dom(soup: BeautifulSoup):
     )
 
     if patches_elem:
-        top_patches = patches_elem
-        while top_patches.parent and top_patches.parent.name not in ['body', 'html', '[document]']:
-            top_patches = top_patches.parent
-        
+        top_patches = find_top_section(patches_elem)
         # Elimina tutti i nodi fratelli successivi (Appendices, Index, References, CDDL Index, Issues)
         for next_node in list(top_patches.next_siblings):
             if hasattr(next_node, 'decompose'):
                 next_node.decompose()
-        
-        # Elimina il nodo della Sezione 8 stesso
+        # Elimina la Sezione 8
         top_patches.decompose()
 
-    # 8. Trasforma le Note in GitHub Alerts (> [!NOTE])
+    # 6. Trasforma le Note in GitHub Alerts (> [!NOTE])
     for note in soup.find_all(class_='note'):
         marker = note.find(class_='marker')
         if marker:
@@ -104,7 +94,7 @@ def transform_and_clean_dom(soup: BeautifulSoup):
         blockquote.append(p_tag)
         note.replace_with(blockquote)
 
-    # 9. Trasforma le Issue in GitHub Alerts (> [!IMPORTANT]) con numerazione progressiva
+    # 7. Trasforma le Issue in GitHub Alerts (> [!IMPORTANT]) con numerazione progressiva e tag strong
     issue_counter = 1
     for issue in soup.find_all(class_='issue'):
         for link in issue.find_all(class_='issue-return'):
@@ -143,7 +133,7 @@ def convert_html_to_md(html_content: str) -> str:
     # Pulizia righe vuote multiple
     markdown_result = re.sub(r'\n{3,}', '\n\n', markdown_result)
     
-    # Inserimento Front Matter YAML
+    # Inserimento Front Matter YAML in cima al documento
     now_utc = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     front_matter = (
         "---\n"
