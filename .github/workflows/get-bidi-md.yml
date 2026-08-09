@@ -1,4 +1,4 @@
-name: Yari-Compile MDN WebDriver Markdown & Release
+name: MDN WebDriver Markdown Release
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  yari-compile-release:
+  compile-release:
     runs-on: ubuntu-latest
 
     steps:
@@ -19,95 +19,86 @@ jobs:
     - name: Setup Node.js
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '22'
 
-    - name: Configure npm
-      run: npm config set legacy-peer-deps true
+    - name: Install Turndown
+      run: npm install turndown
 
-    - name: Clone MDN Yari Engine
-      run: git clone --depth 1 https://github.com/mdn/yari.git mdn-yari
-
-    - name: Clone MDN WebDriver Content Only (Sparse)
+    - name: Clone MDN WebDriver Content (Sparse)
       run: |
-        # Initialize a minimal git environment to avoid downloading the entire 14,000+ page repo
         git clone --depth 1 --no-checkout https://github.com/mdn/content.git mdn-source
         cd mdn-source
         git sparse-checkout init --cone
-        
-        # Define the exact folder subset matching the WebDriver BiDi documentation
         git sparse-checkout set files/en-us/web/webdriver
         git checkout main
 
-    - name: Install Dependencies
-      run: |
-        cd mdn-yari
-        # Install a reliable utility to convert Yari's compiled HTML payload back to Markdown
-        npm install turndown
-
-    - name: Build Webpack Output via Yari
-      env:
-        CONTENT_ROOT: ${{ github.workspace }}/mdn-content/files
-      run: |
-        cd mdn-yari
-        # This triggers KumaScript, compiling all macros into real HTML content tags
-        npm run build
-
-    - name: Stitch Front-Matter and Rendered Markdown
+    - name: Fetch Compiled MDN Content and Convert to Markdown
       run: |
         mkdir -p final-compiled-markdown
-        
-        # Run a Node helper script to extract Yari's JSON output, convert HTML to MD, and prepend the YAML blocks
         node -e "
         const fs = require('fs');
         const path = require('path');
         const TurndownService = require('turndown');
         const turndownService = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
 
-        const sourceDir = 'mdn-content/files/en-us/web/webdriver';
-        const buildDir = 'mdn-yari/client/build/en-us/docs/web/webdriver';
+        const sourceDir = 'mdn-source/files/en-us/web/webdriver';
         const outputDir = 'final-compiled-markdown';
 
-        function processFolder(currentSrc, currentBuild, currentOut) {
+        async function processDirectory(currentSrc, currentOut) {
             if (!fs.existsSync(currentOut)) fs.mkdirSync(currentOut, { recursive: true });
 
-            // 1. Process the main document file in this directory
-            const rawMdPath = path.join(currentSrc, 'index.md');
-            const jsonPath = path.join(currentBuild, 'index.json');
+            const items = fs.readdirSync(currentSrc);
 
-            if (fs.existsSync(rawMdPath) && fs.existsSync(jsonPath)) {
-                const rawContent = fs.readFileSync(rawMdPath, 'utf8');
-                const jsonData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+            for (const item of items) {
+                const srcPath = path.join(currentSrc, item);
+                const outPath = path.join(currentOut, item);
 
-                // Extract the front matter block exactly as it originally appeared
-                const frontMatterMatch = rawContent.match(/^---[\s\S]*?---/);
-                const frontMatter = frontMatterMatch ? frontMatterMatch[0] : '';
+                if (fs.statSync(srcPath).isDirectory()) {
+                    await processDirectory(srcPath, outPath);
+                } else if (item === 'index.md') {
+                    const rawContent = fs.readFileSync(srcPath, 'utf8');
 
-                // Extract the compiled HTML body content rendered by Yari
-                const compiledHtml = jsonData.doc.body[0].value;
-                
-                // Convert Yari's rendered HTML structures back to clean Markdown elements
-                const compiledMarkdownBody = turndownService.turndown(compiledHtml);
+                    // Estrazione del Front-Matter YAML
+                    const frontMatterMatch = rawContent.match(/^---[\s\S]*?---/);
+                    const frontMatter = frontMatterMatch ? frontMatterMatch[0] : '';
 
-                // Stitch them back together cleanly
-                const finalFileContent = frontMatter + '\n\n' + compiledMarkdownBody;
-                fs.writeFileSync(path.join(currentOut, 'index.md'), finalFileContent, 'utf8');
-            }
+                    // Estrazione dello Slug dai metadati o dal percorso
+                    const slugMatch = rawContent.match(/slug:\ (.*)/);
+                    let slug = slugMatch ? slugMatch[1].trim() : '';
 
-            // 2. Recurse into sub-folders to completely map out WebDriver BiDi trees
-            if (fs.existsSync(currentSrc)) {
-                fs.readdirSync(currentSrc).forEach(item => {
-                    const nextSrc = path.join(currentSrc, item);
-                    const nextBuild = path.join(currentBuild, item);
-                    const nextOut = path.join(currentOut, item);
-
-                    if (fs.statSync(nextSrc).isDirectory()) {
-                        processFolder(nextSrc, nextBuild, nextOut);
+                    if (!slug) {
+                        const relPath = path.relative('mdn-source/files/en-us', currentSrc);
+                        slug = relPath.replace(/\\/g, '/');
                     }
-                });
+
+                    // Download del file index.json pre-compilato da MDN
+                    const jsonUrl = \`https://developer.mozilla.org/en-US/docs/\${slug}/index.json\`;
+                    
+                    try {
+                        const res = await fetch(jsonUrl);
+                        if (!res.ok) throw new Error(\`HTTP \${res.status}\`);
+                        const jsonData = await res.json();
+
+                        // Estrazione HTML compilato
+                        const sections = jsonData.doc.body || [];
+                        const compiledHtml = sections.map(s => s.value ? s.value.content || s.value : '').join('\\n');
+
+                        // Conversione HTML -> Markdown
+                        const markdownBody = turndownService.turndown(compiledHtml);
+                        const finalMarkdown = frontMatter + '\\n\\n' + markdownBody;
+
+                        fs.writeFileSync(path.join(currentOut, 'index.md'), finalMarkdown, 'utf8');
+                        console.log(\`Compilato con successo: \${slug}\`);
+                    } catch (err) {
+                        console.error(\`Errore durante il recupero per \${slug}: \${err.message}\`);
+                        // Fallback sul contenuto grezzo in caso di errore di rete
+                        fs.writeFileSync(path.join(currentOut, 'index.md'), rawContent, 'utf8');
+                    }
+                }
             }
         }
 
-        processFolder(sourceDir, buildDir, outputDir);
+        processDirectory(sourceDir, outputDir);
         "
 
     - name: Compress Markdown Files into ZIP
@@ -118,16 +109,16 @@ jobs:
       id: tag
       run: echo "release_tag=v$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
 
-    - name: Deploy to Permanent GitHub Release
+    - name: Deploy to GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
         name: MDN WebDriver Compiled Markdown (${{ steps.tag.outputs.release_tag }})
         body: |
-          Automated compilation of MDN's WebDriver / BiDi documentation.
+          Compilazione automatizzata della documentazione MDN per WebDriver / BiDi.
           
-          - **Yari Engine Compilation:** All `{{SubPagesWithSummaries}}` macros are fully expanded into live links.
-          - **Front Matter Retained:** Original metadata headers (`title:`, `slug:`, etc.) are kept intact at the top of each file.
+          - Macro KumaScript espanse via MDN Production CDN (`index.json`).
+          - Front-matter originale mantenuto in cima a ciascun file.
         draft: false
         prerelease: false
         files: mdn-webdriver-compiled-with-frontmatter.zip
