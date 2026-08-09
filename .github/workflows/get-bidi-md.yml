@@ -1,8 +1,6 @@
 name: MDN WebDriver Markdown Release
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
 
 permissions:
