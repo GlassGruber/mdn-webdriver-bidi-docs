@@ -16,7 +16,7 @@ jobs:
     - name: Clone WebDriver Docs Only (Sparse Checkout)
       run: |
         # Initialize a minimal git environment to avoid downloading the entire 14,000+ page repo
-        git clone --depth 1 --no-checkout https://github.com mdn-source
+        git clone --depth 1 --no-checkout https://github.com/mdn/content.git mdn-source
         cd mdn-source
         git sparse-checkout init --cone
         
