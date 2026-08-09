@@ -18,28 +18,46 @@ def fetch_html(url: str) -> str:
         return response.read().decode('utf-8')
 
 def transform_and_clean_dom(soup: BeautifulSoup):
-    """Pulisce il DOM rimuovendo le sezioni indesiderate e convertendo note/issue."""
+    """Pulisce il DOM rimuovendo sezioni escluse, CSS, JS, TOC e formattando note/issue."""
     
-    # 1. Rimuove elementi prima dell'Abstract usando nodi fratelli (evita ricorsione)
+    # 1. Rimuove del tutto tag di script, stili e meta-informazioni
+    for tag in soup.find_all(['head', 'style', 'script', 'link', 'meta', 'svg', 'noscript']):
+        tag.decompose()
+
+    # Rimuove gli attributi style dagli elementi rimanenti
+    for tag in soup.find_all(True):
+        if 'style' in tag.attrs:
+            del tag.attrs['style']
+
+    # 2. Rimuove il Table of Contents (TOC)
+    for toc in soup.find_all(id=re.compile(r'^toc$', re.I)):
+        toc.decompose()
+    for toc in soup.find_all(class_=re.compile(r'^toc$', re.I)):
+        toc.decompose()
+    for toc in soup.find_all(['nav', 'section'], id=re.compile(r'table-of-contents|toc', re.I)):
+        toc.decompose()
+    for h in soup.find_all(['h2', 'h3'], string=re.compile(r'Table of Contents|Contents', re.I)):
+        parent = h.find_parent(['nav', 'section', 'div']) or h
+        parent.decompose()
+
+    # 3. Rimuove elementi prima dell'Abstract usando nodi fratelli (senza ricorsione)
     abstract = soup.find(id='abstract') or soup.find('h2', string=re.compile(r'Abstract', re.I))
     if abstract:
         top_abstract = abstract
-        # Risale fino al contenitore di primo livello (figlio diretto di body/html)
         while top_abstract.parent and top_abstract.parent.name not in ['body', 'html', '[document]']:
             top_abstract = top_abstract.parent
         
-        # Elimina i fratelli precedenti in modo piatto senza traversata ricorsiva
         for prev in list(top_abstract.previous_siblings):
             if hasattr(prev, 'decompose'):
                 prev.decompose()
 
-    # 2. Rimuove la sezione 'Status of this document'
+    # 4. Rimuove 'Status of this document' (#sotd)
     sotd = soup.find(id='sotd') or soup.find('h2', string=re.compile(r'Status of this document', re.I))
     if sotd:
         parent = sotd.find_parent('section') or sotd
         parent.decompose()
 
-    # 3. Rimuove sezioni esplicite da escludere tramite ID
+    # 5. Rimuove sezioni esplicite da escludere
     excluded_ids = [
         'patches', 'appendices', 'index', 'references', 
         'cddl-index', 'issues-index', 'terms-defined-by-this-specification',
@@ -52,7 +70,6 @@ def transform_and_clean_dom(soup: BeautifulSoup):
             parent = elem.find_parent('section') or elem
             parent.decompose()
 
-    # Rimuove intestazioni corrispondenti a sezioni da escludere
     excluded_heading_patterns = [
         r'8\.\s+Patches', r'9\.\s+Appendices', r'Index', r'References',
         r'CDDL Index', r'Issues Index'
@@ -62,7 +79,7 @@ def transform_and_clean_dom(soup: BeautifulSoup):
             parent = h.find_parent('section') or h
             parent.decompose()
 
-    # 4. Trasforma le Note in GitHub Alerts (> [!NOTE])
+    # 6. Trasforma le Note in GitHub Alerts (> [!NOTE])
     for note in soup.find_all(class_='note'):
         marker = note.find(class_='marker')
         if marker:
@@ -74,19 +91,32 @@ def transform_and_clean_dom(soup: BeautifulSoup):
         blockquote.string = f"[!NOTE]\n{formatted_note}"
         note.replace_with(blockquote)
 
-    # 5. Trasforma le Issue in GitHub Alerts (> [!IMPORTANT])
+    # 7. Trasforma le Issue in GitHub Alerts (> [!IMPORTANT]) con numerazione progressiva
+    issue_counter = 1
     for issue in soup.find_all(class_='issue'):
         for link in issue.find_all(class_='issue-return'):
             link.decompose()
             
+        issue_id = issue.get('id', '')
+        issue_label = ""
+        
+        # Se presente un ID numerico specifico (es. issue-1131), lo estrae
+        if issue_id:
+            num_match = re.search(r'\d+', issue_id)
+            if num_match:
+                issue_label = f"Issue #{num_match.group(0)}"
+
+        if not issue_label:
+            issue_label = f"Issue #{issue_counter}"
+            issue_counter += 1
+
         issue_text = issue.get_text().strip()
         formatted_issue = "\n> ".join(issue_text.splitlines())
         blockquote = soup.new_tag('blockquote')
-        blockquote.string = f"[!IMPORTANT]\nISSUE: {formatted_issue}"
+        blockquote.string = f"[!IMPORTANT]\n**{issue_label}**: {formatted_issue}"
         issue.replace_with(blockquote)
 
 def convert_html_to_md(html_content: str) -> str:
-    # Uso del parser 'lxml' per prestazioni e tolleranza superiori
     soup = BeautifulSoup(html_content, 'lxml')
     transform_and_clean_dom(soup)
     
@@ -95,7 +125,7 @@ def convert_html_to_md(html_content: str) -> str:
         str(soup),
         heading_style="ATX",
         code_language="cddl",
-        strip=['script', 'style']
+        strip=['script', 'style', 'head', 'link', 'meta', 'noscript']
     )
     
     # Pulizia righe vuote multiple
