@@ -1,0 +1,43 @@
+name: Extract MDN WebDriver BiDi Markdown
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: # This adds a manual "Run" button in GitHub
+
+jobs:
+  extract-md:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Your Repository
+      uses: actions/checkout@v4
+
+    - name: Clone WebDriver Docs Only (Sparse Checkout)
+      run: |
+        # Initialize a minimal git environment to avoid downloading the entire 14,000+ page repo
+        git clone --depth 1 --no-checkout https://github.com mdn-source
+        cd mdn-source
+        git sparse-checkout init --cone
+        
+        # Define the exact folder subset matching the WebDriver BiDi documentation
+        git sparse-checkout set files/en-us/web/webdriver
+        git checkout main
+
+    - name: Structure and Package Markdown Files
+      run: |
+        # Create a clean folder for your final artifact
+        mkdir -p webdriver-bidi-markdown
+        
+        # Copy the WebDriver content out of the sparse clone
+        cp -r mdn-source/files/en-us/web/webdriver/* webdriver-bidi-markdown/
+        
+        # Optional cleaning: Remove empty folders if any exist
+        find webdriver-bidi-markdown -type d -empty -delete
+
+    - name: Upload Markdown ZIP Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: mdn-webdriver-bidi-md-files
+        path: webdriver-bidi-markdown/
+        retention-days: 7
