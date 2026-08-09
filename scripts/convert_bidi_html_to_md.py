@@ -18,6 +18,13 @@ def fetch_html(url: str) -> str:
     with urllib.request.urlopen(req) as response:
         return response.read().decode('utf-8')
 
+def get_top_sibling_node(elem):
+    """Restituisce il nodo figlio diretto del contenitore primario (main/body)."""
+    curr = elem
+    while curr.parent and curr.parent.name not in ['main', 'body', 'html', '[document]']:
+        curr = curr.parent
+    return curr
+
 def transform_and_clean_main(main_soup: BeautifulSoup) -> BeautifulSoup:
     """Pulisce ed elabora esclusivamente il contenuto presente all'interno del nodo <main>."""
     
@@ -59,7 +66,6 @@ def transform_and_clean_main(main_soup: BeautifulSoup) -> BeautifulSoup:
     for exc_id in excluded_ids:
         elem = main_soup.find(id=exc_id)
         if elem:
-            # Rimuove l'elemento e tutti i nodi fratelli successivi dentro <main>
             for next_sibling in list(elem.next_siblings):
                 if hasattr(next_sibling, 'decompose'):
                     next_sibling.decompose()
@@ -80,7 +86,7 @@ def transform_and_clean_main(main_soup: BeautifulSoup) -> BeautifulSoup:
         blockquote.append(p_tag)
         note.replace_with(blockquote)
 
-    # 7. Trasforma le Issue in GitHub Alerts (> [!IMPORTANT]) con numerazione progressiva e tag strong
+    # 7. Trasforma le Issue in GitHub Alerts (> [!IMPORTANT]) con numerazione progressiva
     issue_counter = 1
     for issue in main_soup.find_all(class_='issue'):
         for link in issue.find_all(class_='issue-return'):
@@ -111,11 +117,8 @@ def convert_html_to_md(html_content: str) -> str:
     
     # Isola esclusivamente l'elemento <main>
     main_node = soup.find('main') or soup.find(attrs={'role': 'main'}) or soup.find('body')
-    
-    # Crea un sotto-DOM contenente solo <main>
     main_soup = BeautifulSoup(str(main_node), 'lxml')
     
-    # Elabora il sotto-DOM
     cleaned_main = transform_and_clean_main(main_soup)
     
     # Conversione HTML -> Markdown
@@ -129,13 +132,14 @@ def convert_html_to_md(html_content: str) -> str:
     # Pulizia righe vuote multiple
     markdown_result = re.sub(r'\n{3,}', '\n\n', markdown_result)
     
-    # Inserimento Front Matter YAML
+    # Inserimento Front Matter YAML e Nota Introduttiva
     now_utc = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     front_matter = (
         "---\n"
         f"generated_at: '{now_utc}'\n"
         f"source_url: '{HTML_URL}'\n"
         "---\n\n"
+        "> All of the text of this specification is normative except sections explicitly marked as non-normative, examples, notes, and issues."
     )
     
     return front_matter + markdown_result
