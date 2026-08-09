@@ -1,0 +1,48 @@
+name: Sync W3C BiDi Spec CDDL Summary
+
+on:
+  schedule:
+    # Esecuzione automatica ogni domenica alle 00:00 UTC
+    - cron: '0 0 * * 0'
+  push:
+    paths:
+      - 'scripts/extract_bidi_cddl.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-cddl-summary:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Local Repository
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - name: Download Spec and Extract CDDL
+      run: |
+        python scripts/extract_bidi_cddl.py
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: webdriver-bidi-cddl-summary
+        path: webdriver-bidi-cddl-summary.md
+
+    - name: Commit and Push Updated Summary
+      run: |
+        git config local user.email "action@github.com"
+        git config local user.name "GitHub Action"
+        git add webdriver-bidi-cddl-summary.md
+        if ! git diff --staged --quiet; then
+          git commit -m "docs: sync automated W3C BiDi CDDL summary"
+          git push
+        else
+          echo "Nessuna modifica rilevata nella specifica W3C."
+        fi
