@@ -1,7 +1,12 @@
 import re
+import sys
 import urllib.request
+from pathlib import Path
 from bs4 import BeautifulSoup
 from markdownify import markdownify as md
+
+# Incremento del limite di ricorsione per alberi DOM complessi
+sys.setrecursionlimit(25000)
 
 HTML_URL = "https://w3c.github.io/webdriver-bidi/"
 OUTPUT_FILE = "webdriver-bidi-spec-full.md"
@@ -15,13 +20,26 @@ def fetch_html(url: str) -> str:
 def transform_and_clean_dom(soup: BeautifulSoup):
     """Pulisce il DOM rimuovendo le sezioni indesiderate e convertendo note/issue."""
     
-    # 1. Rimuove la sezione 'Status of this document'
+    # 1. Rimuove elementi prima dell'Abstract usando nodi fratelli (evita ricorsione)
+    abstract = soup.find(id='abstract') or soup.find('h2', string=re.compile(r'Abstract', re.I))
+    if abstract:
+        top_abstract = abstract
+        # Risale fino al contenitore di primo livello (figlio diretto di body/html)
+        while top_abstract.parent and top_abstract.parent.name not in ['body', 'html', '[document]']:
+            top_abstract = top_abstract.parent
+        
+        # Elimina i fratelli precedenti in modo piatto senza traversata ricorsiva
+        for prev in list(top_abstract.previous_siblings):
+            if hasattr(prev, 'decompose'):
+                prev.decompose()
+
+    # 2. Rimuove la sezione 'Status of this document'
     sotd = soup.find(id='sotd') or soup.find('h2', string=re.compile(r'Status of this document', re.I))
     if sotd:
         parent = sotd.find_parent('section') or sotd
         parent.decompose()
 
-    # 2. Rimuove sezioni esplicite da escludere tramite ID o intestazione
+    # 3. Rimuove sezioni esplicite da escludere tramite ID
     excluded_ids = [
         'patches', 'appendices', 'index', 'references', 
         'cddl-index', 'issues-index', 'terms-defined-by-this-specification',
@@ -44,44 +62,35 @@ def transform_and_clean_dom(soup: BeautifulSoup):
             parent = h.find_parent('section') or h
             parent.decompose()
 
-    # 3. Trasforma le Note in GitHub Alerts (> [!NOTE])
+    # 4. Trasforma le Note in GitHub Alerts (> [!NOTE])
     for note in soup.find_all(class_='note'):
-        # Rimuove l'etichetta "Note:" duplicate se presente nel marker
         marker = note.find(class_='marker')
         if marker:
             marker.decompose()
         
         note_text = note.get_text().strip()
-        # Sostituisce il contenuto HTML del nodo con una struttura blockquote
+        formatted_note = "\n> ".join(note_text.splitlines())
         blockquote = soup.new_tag('blockquote')
-        blockquote.string = f"[!NOTE]\n{note_text}"
+        blockquote.string = f"[!NOTE]\n{formatted_note}"
         note.replace_with(blockquote)
 
-    # 4. Trasforma le Issue in GitHub Alerts (> [!IMPORTANT])
+    # 5. Trasforma le Issue in GitHub Alerts (> [!IMPORTANT])
     for issue in soup.find_all(class_='issue'):
-        # Rimuove eventuali link di ritorno
         for link in issue.find_all(class_='issue-return'):
             link.decompose()
             
         issue_text = issue.get_text().strip()
+        formatted_issue = "\n> ".join(issue_text.splitlines())
         blockquote = soup.new_tag('blockquote')
-        blockquote.string = f"[!IMPORTANT]\nISSUE: {issue_text}"
+        blockquote.string = f"[!IMPORTANT]\nISSUE: {formatted_issue}"
         issue.replace_with(blockquote)
 
-    # 5. Rimuove elementi prima dell'Abstract / Introduzione
-    abstract = soup.find(id='abstract') or soup.find('h2', string=re.compile(r'Abstract', re.I))
-    if abstract:
-        # Rimuove tutti i fratelli precedenti al blocco Abstract
-        parent_container = abstract.parent
-        for prev in list(abstract.find_all_previous()):
-            if prev.parent == parent_container and prev != abstract:
-                prev.decompose()
-
 def convert_html_to_md(html_content: str) -> str:
-    soup = BeautifulSoup(html_content, 'html.parser')
+    # Uso del parser 'lxml' per prestazioni e tolleranza superiori
+    soup = BeautifulSoup(html_content, 'lxml')
     transform_and_clean_dom(soup)
     
-    # Conversione HTML pulito -> Markdown
+    # Conversione HTML -> Markdown
     markdown_result = md(
         str(soup),
         heading_style="ATX",
