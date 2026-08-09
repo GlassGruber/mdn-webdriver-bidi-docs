@@ -18,67 +18,55 @@ def fetch_html(url: str) -> str:
     with urllib.request.urlopen(req) as response:
         return response.read().decode('utf-8')
 
-def get_top_sibling_node(elem):
-    """Restituisce il nodo figlio diretto del contenitore primario (main/body), senza mai selezionare main/body."""
-    curr = elem
-    while curr.parent and curr.parent.name not in ['main', 'body', 'html', '[document]']:
-        curr = curr.parent
-    return curr
-
-def transform_and_clean_dom(soup: BeautifulSoup):
-    """Pulisce il DOM rimuovendo sezioni escluse, CSS, JS, TOC e troncando dalla Sezione 8 in poi."""
+def transform_and_clean_main(main_soup: BeautifulSoup) -> BeautifulSoup:
+    """Pulisce ed elabora esclusivamente il contenuto presente all'interno del nodo <main>."""
     
-    # 1. Rimuove tag di script, stili e meta-informazioni
-    for tag in soup.find_all(['head', 'style', 'script', 'link', 'meta', 'svg', 'noscript']):
+    # 1. Rimuove tag non necessari all'interno di <main>
+    for tag in main_soup.find_all(['style', 'script', 'link', 'meta', 'svg', 'noscript']):
         tag.decompose()
 
-    for tag in soup.find_all(True):
+    for tag in main_soup.find_all(True):
         if 'style' in tag.attrs:
             del tag.attrs['style']
 
-    # 2. Normalizza i ritorni a capo interni nei paragrafi <p> per evitare a capo forzati
-    for p in soup.find_all('p'):
+    # 2. Normalizza i ritorni a capo interni nei paragrafi <p>
+    for p in main_soup.find_all('p'):
         for child in p.find_all(string=True):
             cleaned_str = re.sub(r'[\r\n]+', ' ', child)
             child.replace_with(cleaned_str)
 
-    # 3. Rimuove il Table of Contents (TOC)
-    for toc in soup.find_all(id=re.compile(r'^toc$', re.I)):
+    # 3. Rimuove il Table of Contents (TOC) se presente dentro <main>
+    for toc in main_soup.find_all(id=re.compile(r'^toc$', re.I)):
         toc.decompose()
-    for toc in soup.find_all(class_=re.compile(r'^toc$', re.I)):
+    for toc in main_soup.find_all(class_=re.compile(r'^toc$', re.I)):
         toc.decompose()
-    for toc in soup.find_all(['nav', 'section'], id=re.compile(r'table-of-contents|toc', re.I)):
+    for toc in main_soup.find_all(['nav', 'section'], id=re.compile(r'table-of-contents|toc', re.I)):
         toc.decompose()
-    for h in soup.find_all(['h2', 'h3'], string=re.compile(r'Table of Contents|Contents', re.I)):
-        parent = h.find_parent(['nav', 'section', 'div']) or h
-        parent.decompose()
 
-    # 4. Rimuove tutti gli elementi precedenti alla sezione #intro / Introduction
-    intro = soup.find(id='intro') or soup.find(lambda tag: tag.name in ['h1', 'h2', 'h3'] and 'Introduction' in tag.get_text())
-    if intro:
-        top_intro = get_top_sibling_node(intro)
-        for prev in list(top_intro.previous_siblings):
-            if hasattr(prev, 'decompose'):
-                prev.decompose()
+    # 4. Rimuove #abstract e #sotd se presenti dentro <main>
+    for exc_id in ['abstract', 'sotd']:
+        elem = main_soup.find(id=exc_id)
+        if elem:
+            parent = elem.find_parent('section') or elem
+            parent.decompose()
 
-    # 5. TRONCAMENTO DEFINITIVO: Rimuove la Sezione 8 (Patches) e tutti i nodi successivi fino alla fine della pagina
-    patches_elem = (
-        soup.find(id='patches') or 
-        soup.find(lambda tag: tag.name in ['h1', 'h2', 'h3', 'h4', 'section'] and 'Patches to Other Specifications' in tag.get_text()) or
-        soup.find(lambda tag: tag.name in ['h1', 'h2', 'h3', 'h4'] and re.search(r'8\.\s+Patches', tag.get_text()))
-    )
+    # 5. Rimuove Sezione 8 (Patches) o sezioni finali da escludere se presenti dentro <main>
+    excluded_ids = [
+        'patches', 'appendices', 'index', 'references', 
+        'cddl-index', 'issues-index', 'terms-defined-by-this-specification',
+        'terms-defined-by-reference', 'normative-references', 'non-normative-references'
+    ]
+    for exc_id in excluded_ids:
+        elem = main_soup.find(id=exc_id)
+        if elem:
+            # Rimuove l'elemento e tutti i nodi fratelli successivi dentro <main>
+            for next_sibling in list(elem.next_siblings):
+                if hasattr(next_sibling, 'decompose'):
+                    next_sibling.decompose()
+            elem.decompose()
 
-    if patches_elem:
-        top_patches = get_top_sibling_node(patches_elem)
-        # Elimina tutti i nodi fratelli successivi (8.1, 8.2, 8.3, 9. Appendices, Index, References, CDDL Index, Issues)
-        for next_node in list(top_patches.next_siblings):
-            if hasattr(next_node, 'decompose'):
-                next_node.decompose()
-        # Elimina l'elemento iniziale della Sezione 8
-        top_patches.decompose()
-
-    # 6. Trasforma le Note in GitHub Alerts (> [!NOTE]) puliti
-    for note in soup.find_all(class_='note'):
+    # 6. Trasforma le Note in GitHub Alerts (> [!NOTE])
+    for note in main_soup.find_all(class_='note'):
         marker = note.find(class_='marker')
         if marker:
             marker.decompose()
@@ -86,15 +74,15 @@ def transform_and_clean_dom(soup: BeautifulSoup):
         note_text = re.sub(r'\s+', ' ', note.get_text()).strip()
         note_text = re.sub(r'^note(?:\([^)]+\))?:\s*', '', note_text, flags=re.IGNORECASE)
 
-        blockquote = soup.new_tag('blockquote')
-        p_tag = soup.new_tag('p')
+        blockquote = main_soup.new_tag('blockquote')
+        p_tag = main_soup.new_tag('p')
         p_tag.append(f"[!NOTE]\n{note_text}")
         blockquote.append(p_tag)
         note.replace_with(blockquote)
 
     # 7. Trasforma le Issue in GitHub Alerts (> [!IMPORTANT]) con numerazione progressiva e tag strong
     issue_counter = 1
-    for issue in soup.find_all(class_='issue'):
+    for issue in main_soup.find_all(class_='issue'):
         for link in issue.find_all(class_='issue-return'):
             link.decompose()
             
@@ -104,11 +92,11 @@ def transform_and_clean_dom(soup: BeautifulSoup):
         issue_label = f"Issue #{issue_counter}"
         issue_counter += 1
 
-        blockquote = soup.new_tag('blockquote')
-        p_tag = soup.new_tag('p')
+        blockquote = main_soup.new_tag('blockquote')
+        p_tag = main_soup.new_tag('p')
         p_tag.append("[!IMPORTANT]\n")
 
-        strong_tag = soup.new_tag('strong')
+        strong_tag = main_soup.new_tag('strong')
         strong_tag.string = f"{issue_label}: "
 
         p_tag.append(strong_tag)
@@ -116,13 +104,23 @@ def transform_and_clean_dom(soup: BeautifulSoup):
         blockquote.append(p_tag)
         issue.replace_with(blockquote)
 
+    return main_soup
+
 def convert_html_to_md(html_content: str) -> str:
     soup = BeautifulSoup(html_content, 'lxml')
-    transform_and_clean_dom(soup)
+    
+    # Isola esclusivamente l'elemento <main>
+    main_node = soup.find('main') or soup.find(attrs={'role': 'main'}) or soup.find('body')
+    
+    # Crea un sotto-DOM contenente solo <main>
+    main_soup = BeautifulSoup(str(main_node), 'lxml')
+    
+    # Elabora il sotto-DOM
+    cleaned_main = transform_and_clean_main(main_soup)
     
     # Conversione HTML -> Markdown
     markdown_result = md(
-        str(soup),
+        str(cleaned_main),
         heading_style="ATX",
         code_language="cddl",
         strip=['script', 'style', 'head', 'link', 'meta', 'noscript']
@@ -131,7 +129,7 @@ def convert_html_to_md(html_content: str) -> str:
     # Pulizia righe vuote multiple
     markdown_result = re.sub(r'\n{3,}', '\n\n', markdown_result)
     
-    # Inserimento Front Matter YAML in cima al documento
+    # Inserimento Front Matter YAML
     now_utc = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     front_matter = (
         "---\n"
@@ -145,7 +143,7 @@ def convert_html_to_md(html_content: str) -> str:
 if __name__ == "__main__":
     print("Download dell'HTML dalla specifica W3C...")
     html_raw = fetch_html(HTML_URL)
-    print("Elaborazione del DOM e conversione in Markdown...")
+    print("Isolamento di <main> e conversione in Markdown...")
     md_output = convert_html_to_md(html_raw)
     Path(OUTPUT_FILE).write_text(md_output, encoding='utf-8')
     print(f"File generato con successo: {OUTPUT_FILE}")
