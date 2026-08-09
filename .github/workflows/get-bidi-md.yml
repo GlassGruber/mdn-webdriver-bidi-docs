@@ -1,19 +1,30 @@
-name: Extract MDN WebDriver BiDi Markdown
+name: Yari-Compile MDN WebDriver Markdown & Release
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: # This adds a manual "Run" button in GitHub
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
-  extract-md:
+  yari-compile-release:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout Your Repository
+    - name: Checkout Local Repository
       uses: actions/checkout@v4
 
-    - name: Clone WebDriver Docs Only (Sparse Checkout)
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Clone MDN Yari Engine
+      run: git clone --depth 1 https://github.com/mdn/yari.git mdn-yari
+
+    - name: Clone MDN WebDriver Content Only (Sparse)
       run: |
         # Initialize a minimal git environment to avoid downloading the entire 14,000+ page repo
         git clone --depth 1 --no-checkout https://github.com/mdn/content.git mdn-source
@@ -24,20 +35,98 @@ jobs:
         git sparse-checkout set files/en-us/web/webdriver
         git checkout main
 
-    - name: Structure and Package Markdown Files
+    - name: Install Dependencies
       run: |
-        # Create a clean folder for your final artifact
-        mkdir -p webdriver-bidi-markdown
-        
-        # Copy the WebDriver content out of the sparse clone
-        cp -r mdn-source/files/en-us/web/webdriver/* webdriver-bidi-markdown/
-        
-        # Optional cleaning: Remove empty folders if any exist
-        find webdriver-bidi-markdown -type d -empty -delete
+        cd mdn-yari
+        npm ci
+        # Install a reliable utility to convert Yari's compiled HTML payload back to Markdown
+        npm install turndown
 
-    - name: Upload Markdown ZIP Artifact
-      uses: actions/upload-artifact@v4
+    - name: Build Webpack Output via Yari
+      env:
+        CONTENT_ROOT: ${{ github.workspace }}/mdn-content/files
+      run: |
+        cd mdn-yari
+        # This triggers KumaScript, compiling all macros into real HTML content tags
+        npm run build
+
+    - name: Stitch Front-Matter and Rendered Markdown
+      node-version: '18'
+      run: |
+        mkdir -p final-compiled-markdown
+        
+        # Run a Node helper script to extract Yari's JSON output, convert HTML to MD, and prepend the YAML blocks
+        node -e "
+        const fs = require('fs');
+        const path = require('path');
+        const TurndownService = require('turndown');
+        const turndownService = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
+
+        const sourceDir = 'mdn-content/files/en-us/web/webdriver';
+        const buildDir = 'mdn-yari/client/build/en-us/docs/web/webdriver';
+        const outputDir = 'final-compiled-markdown';
+
+        function processFolder(currentSrc, currentBuild, currentOut) {
+            if (!fs.existsSync(currentOut)) fs.mkdirSync(currentOut, { recursive: true });
+
+            // 1. Process the main document file in this directory
+            const rawMdPath = path.join(currentSrc, 'index.md');
+            const jsonPath = path.join(currentBuild, 'index.json');
+
+            if (fs.existsSync(rawMdPath) && fs.existsSync(jsonPath)) {
+                const rawContent = fs.readFileSync(rawMdPath, 'utf8');
+                const jsonData = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+
+                // Extract the front matter block exactly as it originally appeared
+                const frontMatterMatch = rawContent.match(/^---[\s\S]*?---/);
+                const frontMatter = frontMatterMatch ? frontMatterMatch[0] : '';
+
+                // Extract the compiled HTML body content rendered by Yari
+                const compiledHtml = jsonData.doc.body[0].value;
+                
+                // Convert Yari's rendered HTML structures back to clean Markdown elements
+                const compiledMarkdownBody = turndownService.turndown(compiledHtml);
+
+                // Stitch them back together cleanly
+                const finalFileContent = frontMatter + '\n\n' + compiledMarkdownBody;
+                fs.writeFileSync(path.join(currentOut, 'index.md'), finalFileContent, 'utf8');
+            }
+
+            // 2. Recurse into sub-folders to completely map out WebDriver BiDi trees
+            if (fs.existsSync(currentSrc)) {
+                fs.readdirSync(currentSrc).forEach(item => {
+                    const nextSrc = path.join(currentSrc, item);
+                    const nextBuild = path.join(currentBuild, item);
+                    const nextOut = path.join(currentOut, item);
+
+                    if (fs.statSync(nextSrc).isDirectory()) {
+                        processFolder(nextSrc, nextBuild, nextOut);
+                    }
+                });
+            }
+        }
+
+        processFolder(sourceDir, buildDir, outputDir);
+        "
+
+    - name: Compress Markdown Files into ZIP
+      run: |
+        zip -r mdn-webdriver-compiled-with-frontmatter.zip final-compiled-markdown/
+
+    - name: Generate Release Tag Name
+      id: tag
+      run: echo "release_tag=v$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
+
+    - name: Deploy to Permanent GitHub Release
+      uses: softprops/action-gh-release@v2
       with:
-        name: mdn-webdriver-bidi-md-files
-        path: webdriver-bidi-markdown/
-        retention-days: 7
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        name: MDN WebDriver Compiled Markdown (${{ steps.tag.outputs.release_tag }})
+        body: |
+          Automated compilation of MDN's WebDriver / BiDi documentation.
+          
+          - **Yari Engine Compilation:** All `{{SubPagesWithSummaries}}` macros are fully expanded into live links.
+          - **Front Matter Retained:** Original metadata headers (`title:`, `slug:`, etc.) are kept intact at the top of each file.
+        draft: false
+        prerelease: false
+        files: mdn-webdriver-compiled-with-frontmatter.zip
