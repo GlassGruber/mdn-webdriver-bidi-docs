@@ -37,8 +37,8 @@ jobs:
 
     - name: Commit and Push Updated Summary
       run: |
-        git config local user.email "action@github.com"
-        git config local user.name "GitHub Action"
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
         git add webdriver-bidi-cddl-summary.md
         if ! git diff --staged --quiet; then
           git commit -m "docs: sync automated W3C BiDi CDDL summary"
