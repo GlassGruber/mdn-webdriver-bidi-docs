@@ -18,17 +18,15 @@ def fetch_html(url: str) -> str:
     with urllib.request.urlopen(req) as response:
         return response.read().decode('utf-8')
 
-def find_top_section(elem):
-    """Individua il nodo <section> o il figlio diretto di <main>/<body> senza selezionare <main> stesso."""
+def get_top_sibling_node(elem):
+    """Restituisce il nodo figlio diretto del contenitore primario (main/body), senza mai selezionare main/body."""
     curr = elem
     while curr.parent and curr.parent.name not in ['main', 'body', 'html', '[document]']:
-        if curr.name == 'section':
-            return curr
         curr = curr.parent
     return curr
 
 def transform_and_clean_dom(soup: BeautifulSoup):
-    """Pulisce il DOM ed elimina le sezioni non necessarie senza svuotare il contenitore principale."""
+    """Pulisce il DOM rimuovendo sezioni escluse, CSS, JS, TOC e troncando dalla Sezione 8 in poi."""
     
     # 1. Rimuove tag di script, stili e meta-informazioni
     for tag in soup.find_all(['head', 'style', 'script', 'link', 'meta', 'svg', 'noscript']):
@@ -38,7 +36,7 @@ def transform_and_clean_dom(soup: BeautifulSoup):
         if 'style' in tag.attrs:
             del tag.attrs['style']
 
-    # 2. Normalizza i ritorni a capo interni nei paragrafi <p>
+    # 2. Normalizza i ritorni a capo interni nei paragrafi <p> per evitare a capo forzati
     for p in soup.find_all('p'):
         for child in p.find_all(string=True):
             cleaned_str = re.sub(r'[\r\n]+', ' ', child)
@@ -55,31 +53,31 @@ def transform_and_clean_dom(soup: BeautifulSoup):
         parent = h.find_parent(['nav', 'section', 'div']) or h
         parent.decompose()
 
-    # 4. Rimuove tutti gli elementi precedenti alla sezione #intro / Introduction (compresi Abstract e SOTD)
+    # 4. Rimuove tutti gli elementi precedenti alla sezione #intro / Introduction
     intro = soup.find(id='intro') or soup.find(lambda tag: tag.name in ['h1', 'h2', 'h3'] and 'Introduction' in tag.get_text())
     if intro:
-        top_intro = find_top_section(intro)
+        top_intro = get_top_sibling_node(intro)
         for prev in list(top_intro.previous_siblings):
             if hasattr(prev, 'decompose'):
                 prev.decompose()
 
-    # 5. Rimuove la Sezione 8 (Patches) e tutti i nodi fratelli successivi fino alla fine del documento
+    # 5. TRONCAMENTO DEFINITIVO: Rimuove la Sezione 8 (Patches) e tutti i nodi successivi fino alla fine della pagina
     patches_elem = (
         soup.find(id='patches') or 
-        soup.find(lambda tag: tag.name in ['h1', 'h2', 'h3', 'section'] and 'Patches to Other Specifications' in tag.get_text()) or
-        soup.find(lambda tag: tag.name in ['h1', 'h2', 'h3'] and re.search(r'8\.\s+Patches', tag.get_text()))
+        soup.find(lambda tag: tag.name in ['h1', 'h2', 'h3', 'h4', 'section'] and 'Patches to Other Specifications' in tag.get_text()) or
+        soup.find(lambda tag: tag.name in ['h1', 'h2', 'h3', 'h4'] and re.search(r'8\.\s+Patches', tag.get_text()))
     )
 
     if patches_elem:
-        top_patches = find_top_section(patches_elem)
-        # Elimina tutti i nodi fratelli successivi (Appendices, Index, References, CDDL Index, Issues)
+        top_patches = get_top_sibling_node(patches_elem)
+        # Elimina tutti i nodi fratelli successivi (8.1, 8.2, 8.3, 9. Appendices, Index, References, CDDL Index, Issues)
         for next_node in list(top_patches.next_siblings):
             if hasattr(next_node, 'decompose'):
                 next_node.decompose()
-        # Elimina la Sezione 8
+        # Elimina l'elemento iniziale della Sezione 8
         top_patches.decompose()
 
-    # 6. Trasforma le Note in GitHub Alerts (> [!NOTE])
+    # 6. Trasforma le Note in GitHub Alerts (> [!NOTE]) puliti
     for note in soup.find_all(class_='note'):
         marker = note.find(class_='marker')
         if marker:
@@ -90,7 +88,7 @@ def transform_and_clean_dom(soup: BeautifulSoup):
 
         blockquote = soup.new_tag('blockquote')
         p_tag = soup.new_tag('p')
-        p_tag.string = f"[!NOTE]\n{note_text}"
+        p_tag.append(f"[!NOTE]\n{note_text}")
         blockquote.append(p_tag)
         note.replace_with(blockquote)
 
@@ -108,7 +106,7 @@ def transform_and_clean_dom(soup: BeautifulSoup):
 
         blockquote = soup.new_tag('blockquote')
         p_tag = soup.new_tag('p')
-        p_tag.string = "[!IMPORTANT]\n"
+        p_tag.append("[!IMPORTANT]\n")
 
         strong_tag = soup.new_tag('strong')
         strong_tag.string = f"{issue_label}: "
