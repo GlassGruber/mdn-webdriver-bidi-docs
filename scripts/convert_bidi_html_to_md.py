@@ -1,3 +1,4 @@
+import datetime
 import re
 import sys
 import urllib.request
@@ -8,7 +9,7 @@ from markdownify import markdownify as md
 # Incremento del limite di ricorsione per alberi DOM complessi
 sys.setrecursionlimit(25000)
 
-HTML_URL = "https://w3c.github.io/webdriver-bidi/"
+HTML_URL = "https://www.w3.org/TR/2026/WD-webdriver-bidi-20260629"
 OUTPUT_FILE = "webdriver-bidi-spec-full.md"
 
 def fetch_html(url: str) -> str:
@@ -24,12 +25,17 @@ def transform_and_clean_dom(soup: BeautifulSoup):
     for tag in soup.find_all(['head', 'style', 'script', 'link', 'meta', 'svg', 'noscript']):
         tag.decompose()
 
-    # Rimuove gli attributi style dagli elementi rimanenti
     for tag in soup.find_all(True):
         if 'style' in tag.attrs:
             del tag.attrs['style']
 
-    # 2. Rimuove il Table of Contents (TOC)
+    # 2. Normalizza i ritorni a capo interni nei paragrafi <p> per evitare a capo forzati
+    for p in soup.find_all('p'):
+        for child in p.find_all(string=True):
+            cleaned_str = re.sub(r'[\r\n]+', ' ', child)
+            child.replace_with(cleaned_str)
+
+    # 3. Rimuove il Table of Contents (TOC)
     for toc in soup.find_all(id=re.compile(r'^toc$', re.I)):
         toc.decompose()
     for toc in soup.find_all(class_=re.compile(r'^toc$', re.I)):
@@ -40,24 +46,30 @@ def transform_and_clean_dom(soup: BeautifulSoup):
         parent = h.find_parent(['nav', 'section', 'div']) or h
         parent.decompose()
 
-    # 3. Rimuove elementi prima dell'Abstract usando nodi fratelli (senza ricorsione)
+    # 4. Rimuove la sezione #abstract
     abstract = soup.find(id='abstract') or soup.find('h2', string=re.compile(r'Abstract', re.I))
     if abstract:
-        top_abstract = abstract
-        while top_abstract.parent and top_abstract.parent.name not in ['body', 'html', '[document]']:
-            top_abstract = top_abstract.parent
+        parent_abstract = abstract.find_parent('section') or abstract
+        parent_abstract.decompose()
+
+    # 5. Rimuove tutti gli elementi precedenti alla sezione #intro / Introduction
+    intro = soup.find(id='intro') or soup.find('h2', string=re.compile(r'Introduction', re.I))
+    if intro:
+        top_intro = intro
+        while top_intro.parent and top_intro.parent.name not in ['body', 'html', '[document]']:
+            top_intro = top_intro.parent
         
-        for prev in list(top_abstract.previous_siblings):
+        for prev in list(top_intro.previous_siblings):
             if hasattr(prev, 'decompose'):
                 prev.decompose()
 
-    # 4. Rimuove 'Status of this document' (#sotd)
+    # 6. Rimuove 'Status of this document' (#sotd)
     sotd = soup.find(id='sotd') or soup.find('h2', string=re.compile(r'Status of this document', re.I))
     if sotd:
         parent = sotd.find_parent('section') or sotd
         parent.decompose()
 
-    # 5. Rimuove sezioni esplicite da escludere
+    # 7. Rimuove sezioni esplicite da escludere
     excluded_ids = [
         'patches', 'appendices', 'index', 'references', 
         'cddl-index', 'issues-index', 'terms-defined-by-this-specification',
@@ -79,41 +91,43 @@ def transform_and_clean_dom(soup: BeautifulSoup):
             parent = h.find_parent('section') or h
             parent.decompose()
 
-    # 6. Trasforma le Note in GitHub Alerts (> [!NOTE])
+    # 8. Trasforma le Note in GitHub Alerts (> [!NOTE]) puliti
     for note in soup.find_all(class_='note'):
         marker = note.find(class_='marker')
         if marker:
             marker.decompose()
         
-        note_text = note.get_text().strip()
-        formatted_note = "\n> ".join(note_text.splitlines())
+        note_text = re.sub(r'\s+', ' ', note.get_text()).strip()
+        note_text = re.sub(r'^note(?:\([^)]+\))?:\s*', '', note_text, flags=re.IGNORECASE)
+
         blockquote = soup.new_tag('blockquote')
-        blockquote.string = f"[!NOTE]\n{formatted_note}"
+        p_tag = soup.new_tag('p')
+        p_tag.string = f"[!NOTE]\n{note_text}"
+        blockquote.append(p_tag)
         note.replace_with(blockquote)
 
-    # 7. Trasforma le Issue in GitHub Alerts (> [!IMPORTANT]) con numerazione progressiva
+    # 9. Trasforma le Issue in GitHub Alerts (> [!IMPORTANT]) con numerazione progressiva e tag strong
     issue_counter = 1
     for issue in soup.find_all(class_='issue'):
         for link in issue.find_all(class_='issue-return'):
             link.decompose()
             
-        issue_id = issue.get('id', '')
-        issue_label = ""
-        
-        # Se presente un ID numerico specifico (es. issue-1131), lo estrae
-        if issue_id:
-            num_match = re.search(r'\d+', issue_id)
-            if num_match:
-                issue_label = f"Issue #{num_match.group(0)}"
+        issue_text = re.sub(r'\s+', ' ', issue.get_text()).strip()
+        issue_text = re.sub(r'^issue(?:\([^)]+\))?:\s*', '', issue_text, flags=re.IGNORECASE)
 
-        if not issue_label:
-            issue_label = f"Issue #{issue_counter}"
-            issue_counter += 1
+        issue_label = f"Issue #{issue_counter}"
+        issue_counter += 1
 
-        issue_text = issue.get_text().strip()
-        formatted_issue = "\n> ".join(issue_text.splitlines())
         blockquote = soup.new_tag('blockquote')
-        blockquote.string = f"[!IMPORTANT]\n**{issue_label}**: {formatted_issue}"
+        p_tag = soup.new_tag('p')
+        p_tag.string = "[!IMPORTANT]\n"
+
+        strong_tag = soup.new_tag('strong')
+        strong_tag.string = f"{issue_label}: "
+
+        p_tag.append(strong_tag)
+        p_tag.append(issue_text)
+        blockquote.append(p_tag)
         issue.replace_with(blockquote)
 
 def convert_html_to_md(html_content: str) -> str:
@@ -130,7 +144,17 @@ def convert_html_to_md(html_content: str) -> str:
     
     # Pulizia righe vuote multiple
     markdown_result = re.sub(r'\n{3,}', '\n\n', markdown_result)
-    return markdown_result
+    
+    # Inserimento Front Matter YAML in cima al documento
+    now_utc = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    front_matter = (
+        "---\n"
+        f"generated_at: '{now_utc}'\n"
+        f"source_url: '{HTML_URL}'\n"
+        "---\n\n"
+    )
+    
+    return front_matter + markdown_result
 
 if __name__ == "__main__":
     print("Download dell'HTML dalla specifica W3C...")
