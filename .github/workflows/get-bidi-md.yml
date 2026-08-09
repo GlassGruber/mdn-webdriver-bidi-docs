@@ -21,6 +21,9 @@ jobs:
       with:
         node-version: '18'
 
+    - name: Configure npm
+      run: npm config set legacy-peer-deps true
+
     - name: Clone MDN Yari Engine
       run: git clone --depth 1 https://github.com/mdn/yari.git mdn-yari
 
