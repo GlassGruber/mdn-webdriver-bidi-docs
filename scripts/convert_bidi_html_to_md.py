@@ -19,9 +19,9 @@ def fetch_html(url: str) -> str:
         return response.read().decode('utf-8')
 
 def transform_and_clean_dom(soup: BeautifulSoup):
-    """Pulisce il DOM rimuovendo sezioni escluse, CSS, JS, TOC e formattando note/issue."""
+    """Pulisce il DOM rimuovendo CSS, JS, TOC, metadati e troncando la specifica dalla Sezione 8 in poi."""
     
-    # 1. Rimuove del tutto tag di script, stili e meta-informazioni
+    # 1. Rimuove tag di script, stili e meta-informazioni
     for tag in soup.find_all(['head', 'style', 'script', 'link', 'meta', 'svg', 'noscript']):
         tag.decompose()
 
@@ -29,7 +29,7 @@ def transform_and_clean_dom(soup: BeautifulSoup):
         if 'style' in tag.attrs:
             del tag.attrs['style']
 
-    # 2. Normalizza i ritorni a capo interni nei paragrafi <p> per evitare a capo forzati
+    # 2. Normalizza i ritorni a capo interni nei paragrafi <p>
     for p in soup.find_all('p'):
         for child in p.find_all(string=True):
             cleaned_str = re.sub(r'[\r\n]+', ' ', child)
@@ -69,29 +69,27 @@ def transform_and_clean_dom(soup: BeautifulSoup):
         parent = sotd.find_parent('section') or sotd
         parent.decompose()
 
-    # 7. Rimuove sezioni esplicite da escludere
-    excluded_ids = [
-        'patches', 'appendices', 'index', 'references', 
-        'cddl-index', 'issues-index', 'terms-defined-by-this-specification',
-        'terms-defined-by-reference', 'normative-references', 'non-normative-references'
-    ]
-    
-    for exc_id in excluded_ids:
-        elem = soup.find(id=exc_id)
-        if elem:
-            parent = elem.find_parent('section') or elem
-            parent.decompose()
+    # 7. TRONCAMENTO DEFINITIVO: Rimuove la Sezione 8 (Patches) e tutti i nodi successivi fino alla fine del DOM
+    patches_elem = (
+        soup.find(id='patches') or 
+        soup.find(lambda tag: tag.name in ['h1', 'h2', 'h3', 'section'] and 'Patches to Other Specifications' in tag.get_text()) or
+        soup.find(lambda tag: tag.name in ['h1', 'h2', 'h3'] and re.search(r'8\.\s+Patches', tag.get_text()))
+    )
 
-    excluded_heading_patterns = [
-        r'8\.\s+Patches', r'9\.\s+Appendices', r'Index', r'References',
-        r'CDDL Index', r'Issues Index'
-    ]
-    for pattern in excluded_heading_patterns:
-        for h in soup.find_all(['h2', 'h3', 'h4'], string=re.compile(pattern, re.I)):
-            parent = h.find_parent('section') or h
-            parent.decompose()
+    if patches_elem:
+        top_patches = patches_elem
+        while top_patches.parent and top_patches.parent.name not in ['body', 'html', '[document]']:
+            top_patches = top_patches.parent
+        
+        # Elimina tutti i nodi fratelli successivi (Appendices, Index, References, CDDL Index, Issues)
+        for next_node in list(top_patches.next_siblings):
+            if hasattr(next_node, 'decompose'):
+                next_node.decompose()
+        
+        # Elimina il nodo della Sezione 8 stesso
+        top_patches.decompose()
 
-    # 8. Trasforma le Note in GitHub Alerts (> [!NOTE]) puliti
+    # 8. Trasforma le Note in GitHub Alerts (> [!NOTE])
     for note in soup.find_all(class_='note'):
         marker = note.find(class_='marker')
         if marker:
@@ -106,7 +104,7 @@ def transform_and_clean_dom(soup: BeautifulSoup):
         blockquote.append(p_tag)
         note.replace_with(blockquote)
 
-    # 9. Trasforma le Issue in GitHub Alerts (> [!IMPORTANT]) con numerazione progressiva e tag strong
+    # 9. Trasforma le Issue in GitHub Alerts (> [!IMPORTANT]) con numerazione progressiva
     issue_counter = 1
     for issue in soup.find_all(class_='issue'):
         for link in issue.find_all(class_='issue-return'):
@@ -145,7 +143,7 @@ def convert_html_to_md(html_content: str) -> str:
     # Pulizia righe vuote multiple
     markdown_result = re.sub(r'\n{3,}', '\n\n', markdown_result)
     
-    # Inserimento Front Matter YAML in cima al documento
+    # Inserimento Front Matter YAML
     now_utc = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     front_matter = (
         "---\n"
