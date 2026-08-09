@@ -1,9 +1,11 @@
 ---
-generated_at: '2026-08-09T12:38:37Z'
+generated_at: '2026-08-09T12:42:49Z'
 source_url: 'https://www.w3.org/TR/2026/WD-webdriver-bidi-20260629'
 ---
 
-> All of the text of this specification is normative except sections explicitly marked as non-normative, examples, notes, and issues.## 1. Introduction
+> All of the text of this specification is normative except sections explicitly marked as non-normative, examples, notes, and issues.
+
+## 1. Introduction
 
 *This section is non-normative.*
 
