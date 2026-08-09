@@ -139,7 +139,7 @@ def convert_html_to_md(html_content: str) -> str:
         f"generated_at: '{now_utc}'\n"
         f"source_url: '{HTML_URL}'\n"
         "---\n\n"
-        "> All of the text of this specification is normative except sections explicitly marked as non-normative, examples, notes, and issues."
+        "> All of the text of this specification is normative except sections explicitly marked as non-normative, examples, notes, and issues.\n\n"
     )
     
     return front_matter + markdown_result
