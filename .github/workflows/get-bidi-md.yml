@@ -34,72 +34,83 @@ jobs:
 
     - name: Fetch Compiled MDN Content and Convert to Markdown
       run: |
-        mkdir -p final-compiled-markdown
-        node -e "
-        const fs = require('fs');
-        const path = require('path');
-        const TurndownService = require('turndown');
-        const turndownService = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
+            mkdir -p final-compiled-markdown
 
-        const sourceDir = 'mdn-source/files/en-us/web/webdriver';
-        const outputDir = 'final-compiled-markdown';
+            cat << 'EOF' > convert.js
+            const fs = require('fs');
+            const path = require('path');
+            const TurndownService = require('turndown');
 
-        async function processDirectory(currentSrc, currentOut) {
-            if (!fs.existsSync(currentOut)) fs.mkdirSync(currentOut, { recursive: true });
+            const turndownService = new TurndownService({ 
+                headingStyle: 'atx', 
+                codeBlockStyle: 'fenced' 
+            });
 
-            const items = fs.readdirSync(currentSrc);
+            const sourceDir = 'mdn-source/files/en-us/web/webdriver';
+            const outputDir = 'final-compiled-markdown';
 
-            for (const item of items) {
-                const srcPath = path.join(currentSrc, item);
-                const outPath = path.join(currentOut, item);
+            async function processDirectory(currentSrc, currentOut) {
+                if (!fs.existsSync(currentOut)) {
+                    fs.mkdirSync(currentOut, { recursive: true });
+                }
 
-                if (fs.statSync(srcPath).isDirectory()) {
-                    await processDirectory(srcPath, outPath);
-                } else if (item === 'index.md') {
-                    const rawContent = fs.readFileSync(srcPath, 'utf8');
+                const items = fs.readdirSync(currentSrc);
 
-                    // Estrazione del Front-Matter YAML
-                    const frontMatterMatch = rawContent.match(/^---[\s\S]*?---/);
-                    const frontMatter = frontMatterMatch ? frontMatterMatch[0] : '';
+                for (const item of items) {
+                    const srcPath = path.join(currentSrc, item);
+                    const outPath = path.join(currentOut, item);
 
-                    // Estrazione dello Slug dai metadati o dal percorso
-                    const slugMatch = rawContent.match(/slug:\ (.*)/);
-                    let slug = slugMatch ? slugMatch[1].trim() : '';
+                    if (fs.statSync(srcPath).isDirectory()) {
+                        await processDirectory(srcPath, outPath);
+                    } else if (item === 'index.md') {
+                        const rawContent = fs.readFileSync(srcPath, 'utf8');
 
-                    if (!slug) {
-                        const relPath = path.relative('mdn-source/files/en-us', currentSrc);
-                        slug = relPath.replace(/\\/g, '/');
-                    }
+                        // Estrazione del Front-Matter YAML
+                        const frontMatterMatch = rawContent.match(/^---[\s\S]*?---/);
+                        const frontMatter = frontMatterMatch ? frontMatterMatch[0] : '';
 
-                    // Download del file index.json pre-compilato da MDN
-                    const jsonUrl = \`https://developer.mozilla.org/en-US/docs/\${slug}/index.json\`;
-                    
-                    try {
-                        const res = await fetch(jsonUrl);
-                        if (!res.ok) throw new Error(\`HTTP \${res.status}\`);
-                        const jsonData = await res.json();
+                        // Estrazione Slug
+                        const slugMatch = rawContent.match(/slug:\s*(.*)/);
+                        let slug = slugMatch ? slugMatch[1].trim() : '';
 
-                        // Estrazione HTML compilato
-                        const sections = jsonData.doc.body || [];
-                        const compiledHtml = sections.map(s => s.value ? s.value.content || s.value : '').join('\\n');
+                        if (!slug) {
+                            const relPath = path.relative('mdn-source/files/en-us', currentSrc);
+                            slug = relPath.split(path.sep).join('/');
+                        }
 
-                        // Conversione HTML -> Markdown
-                        const markdownBody = turndownService.turndown(compiledHtml);
-                        const finalMarkdown = frontMatter + '\\n\\n' + markdownBody;
+                        // Download index.json da CDN MDN
+                        const jsonUrl = `https://developer.mozilla.org/en-US/docs/${slug}/index.json`;
+                        
+                        try {
+                            const res = await fetch(jsonUrl);
+                            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                            const jsonData = await res.json();
 
-                        fs.writeFileSync(path.join(currentOut, 'index.md'), finalMarkdown, 'utf8');
-                        console.log(\`Compilato con successo: \${slug}\`);
-                    } catch (err) {
-                        console.error(\`Errore durante il recupero per \${slug}: \${err.message}\`);
-                        // Fallback sul contenuto grezzo in caso di errore di rete
-                        fs.writeFileSync(path.join(currentOut, 'index.md'), rawContent, 'utf8');
+                            // Estrazione HTML compilato
+                            const sections = jsonData.doc.body || [];
+                            const compiledHtml = sections
+                                .map(s => typeof s.value === 'string' ? s.value : s.value?.content || '')
+                                .join('\n');
+
+                            // Conversione HTML -> Markdown
+                            const markdownBody = turndownService.turndown(compiledHtml);
+                            const finalMarkdown = frontMatter + '\n\n' + markdownBody;
+
+                            fs.writeFileSync(path.join(currentOut, 'index.md'), finalMarkdown, 'utf8');
+                            console.log(`Compilato: ${slug}`);
+                        } catch (err) {
+                            console.error(`Errore per ${slug}: ${err.message}`);
+                            // Fallback sul contenuto originale grezzo
+                            fs.writeFileSync(path.join(currentOut, 'index.md'), rawContent, 'utf8');
+                        }
                     }
                 }
             }
-        }
 
-        processDirectory(sourceDir, outputDir);
-        "
+            processDirectory(sourceDir, outputDir);
+            EOF
+
+            node convert.js
 
     - name: Compress Markdown Files into ZIP
       run: |
