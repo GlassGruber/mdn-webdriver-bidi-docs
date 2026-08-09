@@ -1,0 +1,48 @@
+name: Sync W3C BiDi Full Markdown Spec
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-full-spec:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Local Repository
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - name: Install Dependencies
+      run: |
+        pip install beautifulsoup4 markdownify
+
+    - name: Convert W3C HTML to Clean Markdown
+      run: |
+        python scripts/convert_bidi_html_to_md.py
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: webdriver-bidi-spec-full
+        path: webdriver-bidi-spec-full.md
+
+    - name: Commit and Push Updated Spec
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add webdriver-bidi-spec-full.md
+        if ! git diff --staged --quiet; then
+          git commit -m "docs: sync full W3C BiDi spec markdown"
+          git push
+        else
+          echo "Nessuna modifica rilevata nella specifica W3C."
+        fi
