@@ -23,7 +23,7 @@ jobs:
 
     - name: Install Dependencies
       run: |
-        pip install beautifulsoup4 markdownify
+        pip install beautifulsoup4 markdownify lxml
 
     - name: Convert W3C HTML to Clean Markdown
       run: |
