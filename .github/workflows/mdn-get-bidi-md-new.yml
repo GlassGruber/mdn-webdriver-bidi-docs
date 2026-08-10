@@ -1,4 +1,4 @@
-name: MDN WebDriver Markdown Release
+name: NEW MDN WebDriver Markdown compiled Release
 
 on:
   workflow_dispatch:
