@@ -20,7 +20,7 @@ jobs:
         python-version: '3.11'
 
     - name: Install Python Dependencies
-      run: pip install -r scripts/requirements.txt
+      run: pip install -r scripts/mdn-convert-requirements.txt
 
     - name: Clone MDN WebDriver Content (Sparse)
       run: |
@@ -31,7 +31,7 @@ jobs:
         git checkout main
 
     - name: Fetch Compiled MDN Content and Process Markdown
-      run: python scripts/convert.py
+      run: python scripts/mdn-convert.py
 
     - name: Compress Markdown Files into ZIP
       run: |
