@@ -1,4 +1,4 @@
-name: NEW MDN WebDriver Markdown compiled Release
+name: Full bundle MDN WebDriver Markdown 
 
 on:
   workflow_dispatch:
@@ -30,12 +30,12 @@ jobs:
         git sparse-checkout set files/en-us/web/webdriver
         git checkout main
 
-    - name: Fetch Compiled MDN Content and Process Markdown
+    - name: Process MDN Documentation Bundle
       run: python scripts/mdn-convert.py
 
-    - name: Compress Markdown Files into ZIP
+    - name: Compress Dual Documentation Bundle into ZIP
       run: |
-        zip -r mdn-webdriver-compiled-sanitized.zip final-compiled-markdown/
+        zip -r mdn-webdriver-bundle.zip release_bundle/
 
     - name: Generate Release Tag Name
       id: tag
@@ -45,14 +45,13 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: ${{ steps.tag.outputs.release_tag }}
-        name: MDN WebDriver Compiled Markdown (${{ steps.tag.outputs.release_tag }})
+        name: MDN WebDriver Documentation Bundle (${{ steps.tag.outputs.release_tag }})
         body: |
-          Automated compilation of MDN WebDriver/BiDi documentation.
+          Automated build of MDN WebDriver/BiDi documentation.
 
-          - KumaScript macros expanded via MDN Production CDN (`index.json`).
-          - Front-matter sanitized (`title`, `slug`, `status` retained).
-          - Files flattened (`/index.md` replaced by topic names).
-          - Links normalized (internal relative bundle paths vs external HTTPS URLs).
+          ZIP Archive Structure:
+          - `raw_mdn_webdriver/`: Original unmodified MDN Markdown source files.
+          - `compiled_mdn_webdriver/`: Processed, flattened, macro-expanded, BCD-injected, and link-normalized Markdown files.
         draft: false
         prerelease: false
-        files: mdn-webdriver-compiled-sanitized.zip
+        files: mdn-webdriver-bundle.zip
