@@ -3,12 +3,13 @@
 
 Processes raw MDN Markdown source files directly from the local git repository,
 expands KumaScript macros into native Markdown, fetches and injects BCD (Browser
-Compatibility Data) tables, sanitizes YAML front-matter, flattens index.md directory
-structures into topic-named .md files, and normalizes internal/external links.
+Compatibility Data) tables with sub-feature and note resolution, sanitizes YAML
+front-matter, flattens index.md directory structures into topic-named .md files,
+and normalizes internal and external Markdown links.
 
 Generates a dual-directory output bundle:
 - release_bundle/raw_mdn_webdriver/ (Unmodified original MDN source files)
-- release_bundle/compiled_mdn_webdriver/ (Processed, flattened, and optimized files)
+- release_bundle/compiled_mdn_webdriver/ (Processed, flattened, optimized files)
 """
 
 import json
@@ -30,12 +31,21 @@ BUNDLE_DIR = Path("release_bundle")
 RAW_OUTPUT_DIR = BUNDLE_DIR / "raw_mdn_webdriver"
 COMPILED_OUTPUT_DIR = BUNDLE_DIR / "compiled_mdn_webdriver"
 
+# Inheritance map for browser engines using "mirror" support in BCD
+MIRROR_MAP = {
+    "edge": "chrome",
+    "chrome_android": "chrome",
+    "firefox_android": "firefox",
+    "safari_ios": "safari",
+    "opera": "chrome",
+}
+
 # Cache for BCD JSON responses to avoid redundant HTTP requests
 BCD_CACHE = {}
 
 
 def compute_slug(file_path: Path, raw_content: str) -> str:
-    """Extracts the slug from YAML front-matter or computes a fallback from the file path."""
+    """Extracts the slug from YAML front-matter or computes a fallback from path."""
     slug_match = re.search(r"^slug:\s*(.*)$", raw_content, re.MULTILINE)
     if slug_match and slug_match.group(1).strip():
         return slug_match.group(1).strip()
@@ -136,22 +146,73 @@ def fetch_bcd_json(category_path: str) -> dict | None:
     return None
 
 
-def extract_version_str(support_entry) -> str:
-    """Extracts a browser version string from a BCD support dictionary entry."""
-    if isinstance(support_entry, list):
-        support_entry = support_entry[0] if support_entry else {}
-    if not isinstance(support_entry, dict):
-        return "N/A"
-    ver = support_entry.get("version_added")
-    if ver is True:
-        return "Yes"
-    if ver is False or ver is None:
+def extract_notes_from_entry(entry: dict) -> list[str]:
+    """Extracts and normalizes note strings from a BCD support dictionary."""
+    if not isinstance(entry, dict) or "notes" not in entry:
+        return []
+
+    notes = entry["notes"]
+    if isinstance(notes, str):
+        return [notes]
+    if isinstance(notes, list):
+        return [n for n in notes if isinstance(n, str)]
+    return []
+
+
+def resolve_support_with_notes(support_dict: dict, browser: str, feature_desc: str, note_collector: list) -> str:
+    """Resolves support version and collects notes with contextual feature descriptions."""
+    entry = support_dict.get(browser)
+
+    if entry == "mirror":
+        parent_browser = MIRROR_MAP.get(browser)
+        if parent_browser:
+            entry = support_dict.get(parent_browser)
+
+    if isinstance(entry, list):
+        entry = entry[0] if entry else {}
+
+    if not isinstance(entry, dict):
         return "No"
-    return str(ver)
+
+    ver = entry.get("version_added")
+    if ver is True:
+        version_str = "Yes"
+    elif ver is False or ver is None:
+        version_str = "No"
+    else:
+        version_str = str(ver)
+
+    extracted_notes = extract_notes_from_entry(entry)
+    if extracted_notes and version_str != "No":
+        for note in extracted_notes:
+            clean_note = re.sub(r"</?[^>]+>", "", note)
+            note_idx = len(note_collector) + 1
+            note_collector.append((browser.capitalize(), feature_desc, clean_note))
+            version_str += f" [{note_idx}]"
+
+    return version_str
+
+
+def extract_feature_rows(node: dict, feature_prefix: str = "") -> list:
+    """Recursively extracts main feature and sub-parameter nodes containing __compat."""
+    rows = []
+
+    if "__compat" in node:
+        desc = node["__compat"].get("description")
+        if not desc:
+            desc = f"`{feature_prefix}`" if feature_prefix else "Base Feature"
+        clean_desc = re.sub(r"</?[^>]+>", "", desc)
+        rows.append((clean_desc, node["__compat"].get("support", {})))
+
+    for key, value in node.items():
+        if key != "__compat" and isinstance(value, dict):
+            rows.extend(extract_feature_rows(value, feature_prefix=key))
+
+    return rows
 
 
 def generate_bcd_table(compat_key: str) -> str:
-    """Generates a Markdown compatibility table from a BCD key."""
+    """Generates a formatted BCD Markdown table including parameter rows and notes."""
     if not compat_key:
         return "*Browser compatibility data unavailable.*"
 
@@ -159,15 +220,12 @@ def generate_bcd_table(compat_key: str) -> str:
     if len(parts) < 3:
         return "*Browser compatibility data unavailable.*"
 
-    # Example key: webdriver.bidi.browsingContext.navigate
-    # Target BCD JSON path: webdriver/bidi/browsingContext.json
     category_file_path = f"{parts[0]}/{parts[1]}/{parts[2]}"
     bcd_data = fetch_bcd_json(category_file_path)
 
     if not bcd_data:
         return "*Browser compatibility data available at MDN BCD repository.*"
 
-    # Traverse nested dictionary
     current = bcd_data
     for part in parts:
         if isinstance(current, dict) and part in current:
@@ -176,19 +234,31 @@ def generate_bcd_table(compat_key: str) -> str:
             current = None
             break
 
-    if not isinstance(current, dict) or "__compat" not in current:
+    if not isinstance(current, dict):
         return "*Browser compatibility data available at MDN BCD repository.*"
 
-    support = current["__compat"].get("support", {})
+    feature_rows = extract_feature_rows(current, feature_prefix=parts[-1])
+    if not feature_rows:
+        return "*Browser compatibility data available at MDN BCD repository.*"
+
     browsers = ["chrome", "firefox", "safari", "edge"]
+    table_lines = [
+        "| Feature | Chrome | Firefox | Safari | Edge |",
+        "| :--- | :---: | :---: | :---: | :---: |"
+    ]
 
-    headers = "| Feature | Chrome | Firefox | Safari | Edge |\n| :--- | :---: | :---: | :---: | :---: |\n"
-    feature_name = parts[-1]
+    note_collector = []
 
-    versions = [extract_version_str(support.get(b, {})) for b in browsers]
-    row = f"| `{feature_name}` | {versions[0]} | {versions[1]} | {versions[2]} | {versions[3]} |\n"
+    for desc, support in feature_rows:
+        versions = [resolve_support_with_notes(support, b, desc, note_collector) for b in browsers]
+        table_lines.append(f"| {desc} | {versions[0]} | {versions[1]} | {versions[2]} | {versions[3]} |")
 
-    return headers + row
+    if note_collector:
+        table_lines.append("\n**Notes:**")
+        for idx, (browser_name, feature_desc, note_text) in enumerate(note_collector, 1):
+            table_lines.append(f"* **[{idx}] {browser_name} ({feature_desc})**: {note_text}")
+
+    return "\n".join(table_lines) + "\n"
 
 
 def inject_bcd_compatibility(content: str, compat_key: str) -> str:
@@ -241,7 +311,6 @@ def process_files():
     if not SOURCE_DIR.exists():
         raise FileNotFoundError(f"Source directory not found: {SOURCE_DIR}")
 
-    # Prepare output directories
     RAW_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     COMPILED_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -253,13 +322,13 @@ def process_files():
             if file == "index.md":
                 source_path = Path(root) / file
 
-                # 1. Copy raw file to RAW_OUTPUT_DIR preserving original folder hierarchy
+                # 1. Copy raw source file to RAW_OUTPUT_DIR preserving folder structure
                 raw_rel_path = source_path.relative_to(SOURCE_DIR)
                 raw_target_path = RAW_OUTPUT_DIR / raw_rel_path
                 raw_target_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_path, raw_target_path)
 
-                # 2. Process compiled file to COMPILED_OUTPUT_DIR
+                # 2. Process compiled output to COMPILED_OUTPUT_DIR
                 compiled_target_path = compute_target_path(source_path, SOURCE_DIR, COMPILED_OUTPUT_DIR)
                 compiled_target_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -270,10 +339,9 @@ def process_files():
                 slug = compute_slug(source_path, raw_content)
                 compat_key = post.metadata.get("browser-compat", "")
 
-                # Operate directly on native Markdown source
                 body = post.content
 
-                # Apply transformations
+                # Apply transformation pipeline
                 body = process_all_macros(body)
                 body = inject_bcd_compatibility(body, compat_key)
                 body = rewrite_links(body, slug_map)
