@@ -1,0 +1,58 @@
+name: MDN WebDriver Markdown Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  compile-release:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Local Repository
+      uses: actions/checkout@v4
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Python Dependencies
+      run: pip install -r scripts/requirements.txt
+
+    - name: Clone MDN WebDriver Content (Sparse)
+      run: |
+        git clone --depth 1 --no-checkout https://github.com/mdn/content.git mdn-source
+        cd mdn-source
+        git sparse-checkout init --cone
+        git sparse-checkout set files/en-us/web/webdriver
+        git checkout main
+
+    - name: Fetch Compiled MDN Content and Process Markdown
+      run: python scripts/convert.py
+
+    - name: Compress Markdown Files into ZIP
+      run: |
+        zip -r mdn-webdriver-compiled-sanitized.zip final-compiled-markdown/
+
+    - name: Generate Release Tag Name
+      id: tag
+      run: echo "release_tag=v$(date +'%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
+
+    - name: Deploy to GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.tag.outputs.release_tag }}
+        name: MDN WebDriver Compiled Markdown (${{ steps.tag.outputs.release_tag }})
+        body: |
+          Automated compilation of MDN WebDriver/BiDi documentation.
+
+          - KumaScript macros expanded via MDN Production CDN (`index.json`).
+          - Front-matter sanitized (`title`, `slug`, `status` retained).
+          - Files flattened (`/index.md` replaced by topic names).
+          - Links normalized (internal relative bundle paths vs external HTTPS URLs).
+        draft: false
+        prerelease: false
+        files: mdn-webdriver-compiled-sanitized.zip
