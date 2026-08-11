@@ -2,14 +2,14 @@
 """MDN WebDriver Documentation Compiler and Sanitizer.
 
 Processes raw MDN Markdown source files directly from the local git repository,
-expands KumaScript macros into native Markdown, fetches and injects BCD (Browser
-Compatibility Data) tables with sub-feature and note resolution, sanitizes YAML
-front-matter, flattens index.md directory structures into topic-named .md files,
-and normalizes internal and external Markdown links.
+expands KumaScript macros into native Markdown, resolves dynamic child page indexes
+(ListSubPages, SubpagesWithSummaries), fetches and injects BCD (Browser Compatibility
+Data) tables with parameter rows and contextual notes, sanitizes YAML front-matter,
+flattens index.md folder structures into topic-named .md files, and normalizes internal/external links.
 
 Generates a dual-directory output bundle:
 - release_bundle/raw_mdn_webdriver/ (Unmodified original MDN source files)
-- release_bundle/compiled_mdn_webdriver/ (Processed, flattened, optimized files)
+- release_bundle/compiled_mdn_webdriver/ (Processed, flattened, and optimized files)
 """
 
 import json
@@ -45,7 +45,7 @@ BCD_CACHE = {}
 
 
 def compute_slug(file_path: Path, raw_content: str) -> str:
-    """Extracts the slug from YAML front-matter or computes a fallback from path."""
+    """Extracts the slug from YAML front-matter or computes a fallback from file path."""
     slug_match = re.search(r"^slug:\s*(.*)$", raw_content, re.MULTILINE)
     if slug_match and slug_match.group(1).strip():
         return slug_match.group(1).strip()
@@ -69,9 +69,32 @@ def compute_target_path(source_file: Path, base_source: Path, base_output: Path)
     return base_output / rel
 
 
-def build_slug_map(base_source: Path, base_output: Path) -> dict[str, str]:
-    """Scans source files to build a lookup map of normalized slugs to output file paths."""
+def extract_summary(content: str) -> str:
+    """Extracts the first descriptive body paragraph from a Markdown document."""
+    lines = content.splitlines()
+    body_lines = []
+    in_yaml = False
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "---":
+            in_yaml = not in_yaml
+            continue
+        if in_yaml or stripped.startswith("#"):
+            continue
+        if stripped:
+            body_lines.append(stripped)
+            if len(body_lines) >= 2:
+                break
+
+    return " ".join(body_lines)
+
+
+def build_document_tree(base_source: Path, base_output: Path) -> tuple[dict, dict]:
+    """Scans all source documents to build a slug lookup map and a parent-child document tree."""
     slug_map = {}
+    doc_tree = {}
+
     for root, _, files in os.walk(base_source):
         for file in files:
             if file == "index.md":
@@ -79,49 +102,87 @@ def build_slug_map(base_source: Path, base_output: Path) -> dict[str, str]:
                 with open(source_path, "r", encoding="utf-8") as f:
                     content = f.read()
 
+                post = frontmatter.loads(content)
                 slug = compute_slug(source_path, content)
                 target_path = compute_target_path(source_path, base_source, base_output)
 
                 normalized_slug = slug.strip("/").lower()
                 rel_output = target_path.relative_to(base_output).as_posix()
+
                 slug_map[normalized_slug] = rel_output
 
-    return slug_map
+                # Calculate parent slug
+                parent_slug = ""
+                if "/" in normalized_slug:
+                    parent_slug = normalized_slug.rsplit("/", 1)[0]
+
+                doc_tree[normalized_slug] = {
+                    "slug": slug,
+                    "normalized_slug": normalized_slug,
+                    "title": post.metadata.get("title", slug.split("/")[-1]),
+                    "summary": extract_summary(post.content),
+                    "rel_path": rel_output,
+                    "parent_slug": parent_slug,
+                    "source_path": source_path,
+                    "target_path": target_path,
+                }
+
+    return slug_map, doc_tree
 
 
-def process_all_macros(content: str) -> str:
-    """Expands KumaScript macros into native Markdown equivalents."""
-    # 1. Cleanup navigational and banner macros
-    cleanup_patterns = [
-        r"\{\{ListSubPages\}\}",
-        r"\{\{SubpagesWithSummaries\}\}",
-        r"\{\{SubPagesWithSummaries\}\}",
-        r"\{\{SeeCompatTable\}\}",
-    ]
-    for pattern in cleanup_patterns:
-        content = re.sub(pattern, "", content, flags=re.IGNORECASE)
+def process_all_macros(content: str, current_slug: str, doc_tree: dict) -> str:
+    """Expands KumaScript macros and dynamic subpage placeholders into native Markdown."""
+    # 1. Experimental Banner Substitution
+    exp_banner = (
+        "> **Experimental:** This is an experimental technology. "
+        "Check the Browser compatibility table carefully before using in production.\n"
+    )
+    content = re.sub(r"\{\{SeeCompatTable\}\}", exp_banner, content, flags=re.IGNORECASE)
 
-    # 2. Badge inline substitution
-    content = re.sub(r"\{\{optional_inline\}\}", "*(Optional)*", content, flags=re.IGNORECASE)
+    # 2. Inline Badge Substitutions
+    content = re.sub(r"\{\{(?:optional_inline|Optional_Inline)\}\}", "*(Optional)*", content)
+    content = re.sub(r"\{\{(?:readonlyinline|ReadOnlyInline)\}\}", "*(Read only)*", content)
 
-    # 3. HTMLElement special substitution: {{HTMLElement("iframe")}} -> `<iframe>`
+    # 3. HTMLElement substitution: {{HTMLElement("iframe")}} -> `<iframe>`
     content = re.sub(r'\{\{HTMLElement\("([^"]+)"\)\}\}', r'`<\1>`', content, flags=re.IGNORECASE)
 
-    # 4. Generic XRef macros with 2 arguments: {{Macro("target", "display")}} -> `display`
-    macro_2_args_pattern = r'\{\{(?:domxref|glossary|Glossary|HTTPStatus|jsxref)\s*\(\s*(?:"[^"]*"|\d+)\s*,\s*"([^"]+)"\s*\)\}\}'
-    content = re.sub(macro_2_args_pattern, r'`\1`', content)
+    # 4. Glossary terms (rendered as plain text)
+    content = re.sub(r'\{\{(?:glossary|Glossary)\s*\(\s*"[^"]*"\s*,\s*"([^"]+)"\s*\)\}\}', r'\1', content)
+    content = re.sub(r'\{\{(?:glossary|Glossary)\s*\(\s*"([^"]+)"\s*\)\}\}', r'\1', content)
 
-    # 5. Generic XRef macros with 1 argument: {{Macro("target")}} -> `target`
-    macro_1_arg_pattern = r'\{\{(?:domxref|glossary|Glossary|jsxref)\s*\(\s*"([^"]+)"\s*\)\}\}'
-    content = re.sub(macro_1_arg_pattern, r'`\1`', content)
+    # 5. Code references with 2 arguments: {{domxref("target", "display")}} or {{HTTPStatus(400, "400 Bad Request")}} -> `display`
+    macro_code_2_args = r'\{\{(?:domxref|HTTPStatus|jsxref)\s*\(\s*(?:"[^"]*"|\d+)\s*,\s*"([^"]+)"\s*\)\}\}'
+    content = re.sub(macro_code_2_args, r'`\1`', content)
 
-    # 6. Replace {{Specifications}} macro placeholder
+    # 6. Code references with 1 argument: {{domxref("Document.title")}} -> `Document.title`
+    macro_code_1_arg = r'\{\{(?:domxref|jsxref)\s*\(\s*"([^"]+)"\s*\)\}\}'
+    content = re.sub(macro_code_1_arg, r'`\1`', content)
+
+    # 7. Replace {{Specifications}} macro placeholder
     content = re.sub(
         r"\{\{Specifications\}\}",
         "*Specification defined in the [W3C WebDriver Specification](https://w3c.github.io/webdriver/).*",
         content,
         flags=re.IGNORECASE
     )
+
+    # 8. Dynamic Subpage List Expansion
+    norm_current = current_slug.strip("/").lower()
+    children = [meta for meta in doc_tree.values() if meta["parent_slug"] == norm_current]
+    children.sort(key=lambda x: x["title"].lower())
+
+    if children:
+        list_items = [f"* [{child['title']}]({child['rel_path']})" for child in children]
+        list_md = "\n".join(list_items) + "\n"
+
+        summary_items = [f"[{child['title']}]({child['rel_path']})\n\n{child['summary']}\n" for child in children]
+        summary_md = "\n".join(summary_items)
+
+        content = re.sub(r"\{\{ListSubPages\}\}", list_md, content, flags=re.IGNORECASE)
+        content = re.sub(r"\{\{Subpage?sWithSummaries\}\}", summary_md, content, flags=re.IGNORECASE)
+    else:
+        content = re.sub(r"\{\{ListSubPages\}\}", "", content, flags=re.IGNORECASE)
+        content = re.sub(r"\{\{Subpage?sWithSummaries\}\}", "", content, flags=re.IGNORECASE)
 
     return content
 
@@ -314,21 +375,21 @@ def process_files():
     RAW_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     COMPILED_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    print("Building slug lookup dictionary...")
-    slug_map = build_slug_map(SOURCE_DIR, COMPILED_OUTPUT_DIR)
+    print("Building document tree and slug map...")
+    slug_map, doc_tree = build_document_tree(SOURCE_DIR, COMPILED_OUTPUT_DIR)
 
     for root, _, files in os.walk(SOURCE_DIR):
         for file in files:
             if file == "index.md":
                 source_path = Path(root) / file
 
-                # 1. Copy raw source file to RAW_OUTPUT_DIR preserving folder structure
+                # 1. Copy raw file to RAW_OUTPUT_DIR preserving folder structure
                 raw_rel_path = source_path.relative_to(SOURCE_DIR)
                 raw_target_path = RAW_OUTPUT_DIR / raw_rel_path
                 raw_target_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_path, raw_target_path)
 
-                # 2. Process compiled output to COMPILED_OUTPUT_DIR
+                # 2. Process compiled output file to COMPILED_OUTPUT_DIR
                 compiled_target_path = compute_target_path(source_path, SOURCE_DIR, COMPILED_OUTPUT_DIR)
                 compiled_target_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -341,8 +402,8 @@ def process_files():
 
                 body = post.content
 
-                # Apply transformation pipeline
-                body = process_all_macros(body)
+                # Transformation pipeline
+                body = process_all_macros(body, slug, doc_tree)
                 body = inject_bcd_compatibility(body, compat_key)
                 body = rewrite_links(body, slug_map)
 
@@ -361,3 +422,4 @@ def process_files():
 
 if __name__ == "__main__":
     process_files()
+    
