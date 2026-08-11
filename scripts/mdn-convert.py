@@ -5,9 +5,9 @@ Processes raw MDN Markdown source files directly from the local git repository,
 expands KumaScript macros into native Markdown, resolves dynamic child page indexes
 (ListSubPages, SubpagesWithSummaries) using MDN rari's summary extraction logic,
 fetches and injects BCD (Browser Compatibility Data) tables with parameter rows and
-contextual notes, cleans up empty compatibility sections on overview pages,
-sanitizes YAML front-matter, flattens index.md folder structures into topic-named .md files,
-and normalizes internal/external links.
+contextual notes, resolves dynamic specification URLs from front-matter or BCD JSON,
+cleans up empty compatibility sections on overview pages, sanitizes YAML front-matter,
+flattens index.md folder structures into topic-named .md files, and normalizes internal/external links.
 
 Generates a dual-directory output bundle with a root manifest:
 - release_bundle/bundle_manifest.json (Provenance metadata)
@@ -110,19 +110,88 @@ def compute_target_path(source_file: Path, base_source: Path, base_output: Path)
     return base_output / rel
 
 
-def process_all_macros(content: str, current_slug: str = "", doc_tree: dict = None) -> str:
+def fetch_bcd_json(category_path: str) -> dict | None:
+    """Fetches and caches BCD JSON from the MDN Browser Compatibility Data repository."""
+    if category_path in BCD_CACHE:
+        return BCD_CACHE[category_path]
+
+    url = f"https://raw.githubusercontent.com/mdn/browser-compat-data/main/{category_path}.json"
+    req = urllib.request.Request(url, headers={"User-Agent": "MDN-Release-Script/1.0"})
+    try:
+        with urllib.request.urlopen(req) as response:
+            if response.status == 200:
+                data = json.loads(response.read().decode("utf-8"))
+                BCD_CACHE[category_path] = data
+                return data
+    except Exception as err:
+        print(f"Notice: BCD fetch skipped for '{category_path}': {err}", file=sys.stderr)
+
+    BCD_CACHE[category_path] = None
+    return None
+
+
+def resolve_specification_urls(post: frontmatter.Post, compat_key: str) -> list[str]:
+    """Extracts specification URLs from front-matter 'spec-urls' or BCD '__compat.spec_url'."""
+    spec_urls = []
+
+    raw_spec_urls = post.metadata.get("spec-urls")
+    if raw_spec_urls:
+        if isinstance(raw_spec_urls, str):
+            spec_urls.append(raw_spec_urls)
+        elif isinstance(raw_spec_urls, list):
+            spec_urls.extend([u for u in raw_spec_urls if isinstance(u, str)])
+
+    if not spec_urls and compat_key:
+        parts = compat_key.split(".")
+        if len(parts) >= 3:
+            category_file_path = f"{parts[0]}/{parts[1]}/{parts[2]}"
+            bcd_data = fetch_bcd_json(category_file_path)
+            if bcd_data:
+                current = bcd_data
+                for part in parts:
+                    if isinstance(current, dict) and part in current:
+                        current = current[part]
+                    else:
+                        current = None
+                        break
+                if isinstance(current, dict) and "__compat" in current:
+                    bcd_spec = current["__compat"].get("spec_url")
+                    if isinstance(bcd_spec, str):
+                        spec_urls.append(bcd_spec)
+                    elif isinstance(bcd_spec, list):
+                        spec_urls.extend([u for u in bcd_spec if isinstance(u, str)])
+
+    return spec_urls
+
+
+def format_specifications_section(spec_urls: list[str]) -> str:
+    """Formats spec URLs into clean Markdown list items."""
+    if not spec_urls:
+        return "*Specification defined in the [W3C WebDriver Specification](https://w3c.github.io/webdriver/).*"
+
+    formatted_items = []
+    for url in spec_urls:
+        title = "WebDriver BiDi Specification" if "webdriver-bidi" in url else "W3C WebDriver Specification"
+        formatted_items.append(f"* [{title}]({url})")
+
+    return "\n".join(formatted_items)
+
+
+def process_all_macros(content: str, current_slug: str = "", doc_tree: dict = None, spec_urls: list = None) -> str:
     """Expands KumaScript macros and dynamic subpage placeholders into native Markdown."""
     # MDN macro docs and ref codes:
     # https://developer.mozilla.org/en-US/docs/MDN/Writing_guidelines/Page_structures/Macros
     # https://developer.mozilla.org/en-US/docs/MDN/Writing_guidelines/Page_structures/Specification_tables
+    # https://github.com/mdn/rari/blob/main/crates/rari-doc/src/templ/templs/specification.rs
     # https://github.com/mdn/rari/blob/main/crates/rari-doc/src/templ/templs/banners.rs
     # https://github.com/mdn/rari/blob/main/crates/rari-doc/src/templ/templs/badges.rs
     # https://github.com/mdn/rari/blob/main/crates/rari-doc/src/templ/templs/listsubpages.rs
     # https://github.com/mdn/rari/blob/main/crates/rari-doc/src/templ/templs/subpages_with_summaries.rs
     # https://github.com/mdn/rari/blob/main/crates/rari-doc/src/helpers/summary_hack.rs
-    
     if doc_tree is None:
         doc_tree = {}
+    if spec_urls is None:
+        spec_urls = []
 
     # 1. Experimental Banner Substitution
     exp_banner = (
@@ -150,13 +219,9 @@ def process_all_macros(content: str, current_slug: str = "", doc_tree: dict = No
     macro_code_1_arg = r'\{\{(?:domxref|jsxref)\s*\(\s*"([^"]+)"\s*\)\}\}'
     content = re.sub(macro_code_1_arg, r'`\1`', content)
 
-    # 7. Replace {{Specifications}} macro placeholder
-    content = re.sub(
-        r"\{\{Specifications\}\}",
-        "*Specification defined in the [W3C WebDriver Specification](https://w3c.github.io/webdriver/).*",
-        content,
-        flags=re.IGNORECASE
-    )
+    # 7. Replace {{Specifications}} macro placeholder dynamically
+    specs_md = format_specifications_section(spec_urls)
+    content = re.sub(r"\{\{Specifications\}\}", specs_md, content, flags=re.IGNORECASE)
 
     # 8. Dynamic Subpage List Expansion
     if current_slug:
@@ -259,26 +324,6 @@ def build_document_tree(base_source: Path, base_output: Path) -> tuple[dict, dic
                 }
 
     return slug_map, doc_tree
-
-
-def fetch_bcd_json(category_path: str) -> dict | None:
-    """Fetches and caches BCD JSON from the MDN Browser Compatibility Data repository."""
-    if category_path in BCD_CACHE:
-        return BCD_CACHE[category_path]
-
-    url = f"https://raw.githubusercontent.com/mdn/browser-compat-data/main/{category_path}.json"
-    req = urllib.request.Request(url, headers={"User-Agent": "MDN-Release-Script/1.0"})
-    try:
-        with urllib.request.urlopen(req) as response:
-            if response.status == 200:
-                data = json.loads(response.read().decode("utf-8"))
-                BCD_CACHE[category_path] = data
-                return data
-    except Exception as err:
-        print(f"Notice: BCD fetch skipped for '{category_path}': {err}", file=sys.stderr)
-
-    BCD_CACHE[category_path] = None
-    return None
 
 
 def extract_notes_from_entry(entry: dict) -> list[str]:
@@ -484,10 +529,11 @@ def process_files():
                 slug = compute_slug(source_path, raw_content)
                 compat_key = post.metadata.get("browser-compat", "")
 
+                spec_urls = resolve_specification_urls(post, compat_key)
                 body = post.content
 
                 # Transformation pipeline
-                body = process_all_macros(body, slug, doc_tree)
+                body = process_all_macros(body, slug, doc_tree, spec_urls)
                 body = inject_bcd_compatibility(body, compat_key)
                 body = rewrite_links(body, slug_map)
 
