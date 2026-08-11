@@ -5,8 +5,9 @@ Processes raw MDN Markdown source files directly from the local git repository,
 expands KumaScript macros into native Markdown, resolves dynamic child page indexes
 (ListSubPages, SubpagesWithSummaries) using MDN rari's summary extraction logic,
 fetches and injects BCD (Browser Compatibility Data) tables with parameter rows and
-contextual notes, sanitizes YAML front-matter, flattens index.md folder structures into
-topic-named .md files, and normalizes internal/external links.
+contextual notes, cleans up empty compatibility sections on overview pages,
+sanitizes YAML front-matter, flattens index.md folder structures into topic-named .md files,
+and normalizes internal/external links.
 
 Generates a dual-directory output bundle:
 - release_bundle/raw_mdn_webdriver/ (Unmodified original MDN source files)
@@ -300,17 +301,18 @@ def extract_feature_rows(node: dict, feature_prefix: str = "") -> list:
 def generate_bcd_table(compat_key: str) -> str:
     """Generates a formatted BCD Markdown table including parameter rows and notes."""
     if not compat_key:
-        return "*Browser compatibility data unavailable.*"
+        return ""
 
     parts = compat_key.split(".")
+    # Exclude top-level keys with fewer than 3 segments (e.g., 'webdriver.bidi' or 'webdriver.classic')
     if len(parts) < 3:
-        return "*Browser compatibility data unavailable.*"
+        return ""
 
     category_file_path = f"{parts[0]}/{parts[1]}/{parts[2]}"
     bcd_data = fetch_bcd_json(category_file_path)
 
     if not bcd_data:
-        return "*Browser compatibility data available at MDN BCD repository.*"
+        return ""
 
     current = bcd_data
     for part in parts:
@@ -321,11 +323,11 @@ def generate_bcd_table(compat_key: str) -> str:
             break
 
     if not isinstance(current, dict):
-        return "*Browser compatibility data available at MDN BCD repository.*"
+        return ""
 
     feature_rows = extract_feature_rows(current, feature_prefix=parts[-1])
     if not feature_rows:
-        return "*Browser compatibility data available at MDN BCD repository.*"
+        return ""
 
     browsers = ["chrome", "firefox", "safari", "edge"]
     table_lines = [
@@ -348,10 +350,16 @@ def generate_bcd_table(compat_key: str) -> str:
 
 
 def inject_bcd_compatibility(content: str, compat_key: str) -> str:
-    """Replaces {{Compat}} macro placeholders with a generated Markdown table."""
-    if "{{Compat}}" in content or "{{compat}}" in content:
-        table_md = generate_bcd_table(compat_key)
+    """Replaces {{Compat}} macro placeholders or removes the compatibility section if empty."""
+    table_md = generate_bcd_table(compat_key)
+
+    if table_md:
         content = re.sub(r"\{\{Compat\}\}", table_md, content, flags=re.IGNORECASE)
+    else:
+        # Removes both the '## Browser compatibility' heading and the {{Compat}} marker if table is empty
+        content = re.sub(r"##\s*Browser compatibility\s*\n+\{\{Compat\}\}", "", content, flags=re.IGNORECASE)
+        content = re.sub(r"\{\{Compat\}\}", "", content, flags=re.IGNORECASE)
+
     return content
 
 
