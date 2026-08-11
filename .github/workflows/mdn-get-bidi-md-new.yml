@@ -36,10 +36,18 @@ jobs:
     - name: Read Manifest Provenance Data
       id: manifest
       run: |
+        SOURCE_REPO=$(jq -r '.source_repository' release_bundle/bundle_manifest.json)
+        SOURCE_PATH=$(jq -r '.source_path' release_bundle/bundle_manifest.json)
+        SOURCE_URL=$(jq -r '.source_url' release_bundle/bundle_manifest.json)
+        SOURCE_COMMIT_URL=$(jq -r '.source_commit_url' release_bundle/bundle_manifest.json)
         COMMIT_HASH=$(jq -r '.source_commit_hash' release_bundle/bundle_manifest.json)
         COMMIT_DATE=$(jq -r '.source_commit_date' release_bundle/bundle_manifest.json)
         TOTAL_FILES=$(jq -r '.total_compiled_files' release_bundle/bundle_manifest.json)
         
+        echo "source_repo=$SOURCE_REPO" >> $GITHUB_OUTPUT
+        echo "source_path=$SOURCE_PATH" >> $GITHUB_OUTPUT
+        echo "source_url=$SOURCE_URL" >> $GITHUB_OUTPUT
+        echo "source_commit_url=$SOURCE_COMMIT_URL" >> $GITHUB_OUTPUT
         echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
         echo "commit_date=$COMMIT_DATE" >> $GITHUB_OUTPUT
         echo "total_files=$TOTAL_FILES" >> $GITHUB_OUTPUT
@@ -70,9 +78,11 @@ jobs:
         body: |
           Automated build of MDN WebDriver/BiDi documentation.
 
-          ### Provenance & Build Info
-          * **Source Repository**: [mdn/content](https://github.com/mdn/content)
-          * **Source Commit**: [`${{ steps.manifest.outputs.commit_hash }}`](https://github.com/mdn/content/commit/${{ steps.manifest.outputs.commit_hash }})
+          ### Provenance Metadata
+          * **Source Repository**: [mdn/content](${{ steps.manifest.outputs.source_repo }})
+          * **Source Path**: [`${{ steps.manifest.outputs.source_path }}`](${{ steps.manifest.outputs.source_url }})
+          * **Source Commit URL**: [View Commit Tree](${{ steps.manifest.outputs.source_commit_url }})
+          * **Source Commit Hash**: [`${{ steps.manifest.outputs.commit_hash }}`](${{ steps.manifest.outputs.source_repo }}/commit/${{ steps.manifest.outputs.commit_hash }})
           * **Source Commit Date**: `${{ steps.manifest.outputs.commit_date }}`
           * **Total Compiled Files**: `${{ steps.manifest.outputs.total_files }}`
 
@@ -81,8 +91,13 @@ jobs:
           * `raw_mdn_webdriver/`: Original unmodified MDN Markdown source files.
           * `compiled_mdn_webdriver/`: Processed, flattened, macro-expanded, BCD-injected, and link-normalized Markdown files.
 
+          ### Bundle Directory Structure
+
+          > [!NOTE]
+          > The compiled bundle contains ${{ steps.manifest.outputs.total_files }} flattened Markdown documents optimized for LLM context processing.
+
           <details>
-          <summary>Click to view Compiled Directory Structure</summary>
+          <summary><b>Click to expand complete file tree</b></summary>
 
           ```text
           ${{ steps.tree.outputs.compiled_tree }}
