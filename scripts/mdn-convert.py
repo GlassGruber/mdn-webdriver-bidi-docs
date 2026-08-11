@@ -112,6 +112,15 @@ def compute_target_path(source_file: Path, base_source: Path, base_output: Path)
 
 def process_all_macros(content: str, current_slug: str = "", doc_tree: dict = None) -> str:
     """Expands KumaScript macros and dynamic subpage placeholders into native Markdown."""
+    # MDN macro docs and ref codes:
+    # https://developer.mozilla.org/en-US/docs/MDN/Writing_guidelines/Page_structures/Macros
+    # https://developer.mozilla.org/en-US/docs/MDN/Writing_guidelines/Page_structures/Specification_tables
+    # https://github.com/mdn/rari/blob/main/crates/rari-doc/src/templ/templs/banners.rs
+    # https://github.com/mdn/rari/blob/main/crates/rari-doc/src/templ/templs/badges.rs
+    # https://github.com/mdn/rari/blob/main/crates/rari-doc/src/templ/templs/listsubpages.rs
+    # https://github.com/mdn/rari/blob/main/crates/rari-doc/src/templ/templs/subpages_with_summaries.rs
+    # https://github.com/mdn/rari/blob/main/crates/rari-doc/src/helpers/summary_hack.rs
+    
     if doc_tree is None:
         doc_tree = {}
 
