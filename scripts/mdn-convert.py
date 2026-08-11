@@ -67,9 +67,14 @@ def get_source_git_info(repo_dir: Path) -> tuple[str, str]:
 
 def write_bundle_manifest(commit_hash: str, commit_date: str, total_files: int):
     """Writes the bundle_manifest.json file at the root of release_bundle/."""
+    source_repo = "https://github.com/mdn/content"
+    source_path = "files/en-us/web/webdriver"
+
     manifest_data = {
-        "source_repository": "https://github.com/mdn/content",
-        "source_path": "files/en-us/web/webdriver",
+        "source_repository": source_repo,
+        "source_path": source_path,
+        "source_url": f"{source_repo}/tree/main/{source_path}",
+        "source_commit_url": f"{source_repo}/tree/{commit_hash}/{source_path}",
         "source_commit_hash": commit_hash,
         "source_commit_date": commit_date,
         "build_date_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
