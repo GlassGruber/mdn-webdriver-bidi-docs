@@ -9,15 +9,18 @@ contextual notes, cleans up empty compatibility sections on overview pages,
 sanitizes YAML front-matter, flattens index.md folder structures into topic-named .md files,
 and normalizes internal/external links.
 
-Generates a dual-directory output bundle:
+Generates a dual-directory output bundle with a root manifest:
+- release_bundle/bundle_manifest.json (Provenance metadata)
 - release_bundle/raw_mdn_webdriver/ (Unmodified original MDN source files)
 - release_bundle/compiled_mdn_webdriver/ (Processed, flattened, and optimized files)
 """
 
+import datetime
 import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import urllib.request
 from pathlib import Path
@@ -28,6 +31,7 @@ import frontmatter
 # Allowed YAML front-matter keys for LLM context optimization
 ALLOWED_FRONTMATTER_KEYS = {"title", "slug", "status"}
 
+SOURCE_REPO_DIR = Path("mdn-source")
 SOURCE_DIR = Path("mdn-source/files/en-us/web/webdriver")
 BUNDLE_DIR = Path("release_bundle")
 RAW_OUTPUT_DIR = BUNDLE_DIR / "raw_mdn_webdriver"
@@ -44,6 +48,36 @@ MIRROR_MAP = {
 
 # Cache for BCD JSON responses to avoid redundant HTTP requests
 BCD_CACHE = {}
+
+
+def get_source_git_info(repo_dir: Path) -> tuple[str, str]:
+    """Retrieves the latest commit hash and commit date from the cloned Git repository."""
+    try:
+        commit_hash = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=repo_dir, text=True
+        ).strip()
+        commit_date = subprocess.check_output(
+            ["git", "log", "-1", "--format=%cd", "--date=iso-strict"], cwd=repo_dir, text=True
+        ).strip()
+        return commit_hash, commit_date
+    except Exception as err:
+        print(f"Notice: Git metadata retrieval failed: {err}", file=sys.stderr)
+        return "unknown", "unknown"
+
+
+def write_bundle_manifest(commit_hash: str, commit_date: str, total_files: int):
+    """Writes the bundle_manifest.json file at the root of release_bundle/."""
+    manifest_data = {
+        "source_repository": "https://github.com/mdn/content",
+        "source_path": "files/en-us/web/webdriver",
+        "source_commit_hash": commit_hash,
+        "source_commit_date": commit_date,
+        "build_date_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "total_compiled_files": total_files,
+    }
+    manifest_path = BUNDLE_DIR / "bundle_manifest.json"
+    with open(manifest_path, "w", encoding="utf-8") as f:
+        json.dump(manifest_data, f, indent=2)
 
 
 def compute_slug(file_path: Path, raw_content: str) -> str:
@@ -169,7 +203,7 @@ def extract_summary(raw_content: str) -> str:
 
     raw_summary = " ".join(summary_lines) if summary_lines else "No summary found."
 
-    # Sanitize inline macros inside the summary text
+    # Sanitize inline macros inside summary text
     cleaned_summary = process_all_macros(raw_summary, current_slug="", doc_tree={})
     return cleaned_summary.strip()
 
@@ -304,7 +338,6 @@ def generate_bcd_table(compat_key: str) -> str:
         return ""
 
     parts = compat_key.split(".")
-    # Exclude top-level keys with fewer than 3 segments (e.g., 'webdriver.bidi' or 'webdriver.classic')
     if len(parts) < 3:
         return ""
 
@@ -356,7 +389,6 @@ def inject_bcd_compatibility(content: str, compat_key: str) -> str:
     if table_md:
         content = re.sub(r"\{\{Compat\}\}", table_md, content, flags=re.IGNORECASE)
     else:
-        # Removes both the '## Browser compatibility' heading and the {{Compat}} marker if table is empty
         content = re.sub(r"##\s*Browser compatibility\s*\n+\{\{Compat\}\}", "", content, flags=re.IGNORECASE)
         content = re.sub(r"\{\{Compat\}\}", "", content, flags=re.IGNORECASE)
 
@@ -408,8 +440,13 @@ def process_files():
     RAW_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     COMPILED_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
+    print("Retrieving Git repository provenance metadata...")
+    commit_hash, commit_date = get_source_git_info(SOURCE_REPO_DIR)
+
     print("Building document tree and slug map...")
     slug_map, doc_tree = build_document_tree(SOURCE_DIR, COMPILED_OUTPUT_DIR)
+
+    file_count = 0
 
     for root, _, files in os.walk(SOURCE_DIR):
         for file in files:
@@ -448,8 +485,12 @@ def process_files():
                 with open(compiled_target_path, "w", encoding="utf-8") as f:
                     f.write(final_content)
 
+                file_count += 1
                 print(f"Processed: {slug} -> {compiled_target_path}")
 
+    # Write root manifest JSON file
+    write_bundle_manifest(commit_hash, commit_date, file_count)
+    print(f"Manifest written: {BUNDLE_DIR / 'bundle_manifest.json'}")
     print("Pipeline execution complete.")
 
 
