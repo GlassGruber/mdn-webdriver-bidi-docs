@@ -33,6 +33,27 @@ jobs:
     - name: Process MDN Documentation Bundle
       run: python scripts/mdn-convert.py
 
+    - name: Read Manifest Provenance Data
+      id: manifest
+      run: |
+        COMMIT_HASH=$(jq -r '.source_commit_hash' release_bundle/bundle_manifest.json)
+        COMMIT_DATE=$(jq -r '.source_commit_date' release_bundle/bundle_manifest.json)
+        TOTAL_FILES=$(jq -r '.total_compiled_files' release_bundle/bundle_manifest.json)
+        
+        echo "commit_hash=$COMMIT_HASH" >> $GITHUB_OUTPUT
+        echo "commit_date=$COMMIT_DATE" >> $GITHUB_OUTPUT
+        echo "total_files=$TOTAL_FILES" >> $GITHUB_OUTPUT
+
+    - name: Generate Directory Tree
+      id: tree
+      run: |
+        sudo apt-get update && sudo apt-get install -y tree
+        COMPILED_TREE=$(tree release_bundle/compiled_mdn_webdriver/ --noreport)
+        
+        echo "compiled_tree<<EOF" >> $GITHUB_OUTPUT
+        echo "$COMPILED_TREE" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
     - name: Compress Dual Documentation Bundle into ZIP
       run: |
         zip -r mdn-webdriver-bundle.zip release_bundle/
@@ -49,9 +70,25 @@ jobs:
         body: |
           Automated build of MDN WebDriver/BiDi documentation.
 
-          ZIP Archive Structure:
-          - `raw_mdn_webdriver/`: Original unmodified MDN Markdown source files.
-          - `compiled_mdn_webdriver/`: Processed, flattened, macro-expanded, BCD-injected, and link-normalized Markdown files.
+          ### Provenance & Build Info
+          * **Source Repository**: [mdn/content](https://github.com/mdn/content)
+          * **Source Commit**: [`${{ steps.manifest.outputs.commit_hash }}`](https://github.com/mdn/content/commit/${{ steps.manifest.outputs.commit_hash }})
+          * **Source Commit Date**: `${{ steps.manifest.outputs.commit_date }}`
+          * **Total Compiled Files**: `${{ steps.manifest.outputs.total_files }}`
+
+          ### ZIP Archive Contents
+          * `bundle_manifest.json`: Machine-readable provenance metadata.
+          * `raw_mdn_webdriver/`: Original unmodified MDN Markdown source files.
+          * `compiled_mdn_webdriver/`: Processed, flattened, macro-expanded, BCD-injected, and link-normalized Markdown files.
+
+          <details>
+          <summary>Click to view Compiled Directory Structure</summary>
+
+          ```text
+          ${{ steps.tree.outputs.compiled_tree }}
+          ```
+
+          </details>
         draft: false
         prerelease: false
         files: mdn-webdriver-bundle.zip
