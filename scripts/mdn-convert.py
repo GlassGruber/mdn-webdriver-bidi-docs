@@ -3,9 +3,10 @@
 
 Processes raw MDN Markdown source files directly from the local git repository,
 expands KumaScript macros into native Markdown, resolves dynamic child page indexes
-(ListSubPages, SubpagesWithSummaries), fetches and injects BCD (Browser Compatibility
-Data) tables with parameter rows and contextual notes, sanitizes YAML front-matter,
-flattens index.md folder structures into topic-named .md files, and normalizes internal/external links.
+(ListSubPages, SubpagesWithSummaries) using MDN rari's summary extraction logic,
+fetches and injects BCD (Browser Compatibility Data) tables with parameter rows and
+contextual notes, sanitizes YAML front-matter, flattens index.md folder structures into
+topic-named .md files, and normalizes internal/external links.
 
 Generates a dual-directory output bundle:
 - release_bundle/raw_mdn_webdriver/ (Unmodified original MDN source files)
@@ -69,69 +70,11 @@ def compute_target_path(source_file: Path, base_source: Path, base_output: Path)
     return base_output / rel
 
 
-def extract_summary(content: str) -> str:
-    """Extracts the first descriptive body paragraph from a Markdown document."""
-    lines = content.splitlines()
-    body_lines = []
-    in_yaml = False
-
-    for line in lines:
-        stripped = line.strip()
-        if stripped == "---":
-            in_yaml = not in_yaml
-            continue
-        if in_yaml or stripped.startswith("#"):
-            continue
-        if stripped:
-            body_lines.append(stripped)
-            if len(body_lines) >= 2:
-                break
-
-    return " ".join(body_lines)
-
-
-def build_document_tree(base_source: Path, base_output: Path) -> tuple[dict, dict]:
-    """Scans all source documents to build a slug lookup map and a parent-child document tree."""
-    slug_map = {}
-    doc_tree = {}
-
-    for root, _, files in os.walk(base_source):
-        for file in files:
-            if file == "index.md":
-                source_path = Path(root) / file
-                with open(source_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-
-                post = frontmatter.loads(content)
-                slug = compute_slug(source_path, content)
-                target_path = compute_target_path(source_path, base_source, base_output)
-
-                normalized_slug = slug.strip("/").lower()
-                rel_output = target_path.relative_to(base_output).as_posix()
-
-                slug_map[normalized_slug] = rel_output
-
-                # Calculate parent slug
-                parent_slug = ""
-                if "/" in normalized_slug:
-                    parent_slug = normalized_slug.rsplit("/", 1)[0]
-
-                doc_tree[normalized_slug] = {
-                    "slug": slug,
-                    "normalized_slug": normalized_slug,
-                    "title": post.metadata.get("title", slug.split("/")[-1]),
-                    "summary": extract_summary(post.content),
-                    "rel_path": rel_output,
-                    "parent_slug": parent_slug,
-                    "source_path": source_path,
-                    "target_path": target_path,
-                }
-
-    return slug_map, doc_tree
-
-
-def process_all_macros(content: str, current_slug: str, doc_tree: dict) -> str:
+def process_all_macros(content: str, current_slug: str = "", doc_tree: dict = None) -> str:
     """Expands KumaScript macros and dynamic subpage placeholders into native Markdown."""
+    if doc_tree is None:
+        doc_tree = {}
+
     # 1. Experimental Banner Substitution
     exp_banner = (
         "> **Experimental:** This is an experimental technology. "
@@ -167,24 +110,106 @@ def process_all_macros(content: str, current_slug: str, doc_tree: dict) -> str:
     )
 
     # 8. Dynamic Subpage List Expansion
-    norm_current = current_slug.strip("/").lower()
-    children = [meta for meta in doc_tree.values() if meta["parent_slug"] == norm_current]
-    children.sort(key=lambda x: x["title"].lower())
+    if current_slug:
+        norm_current = current_slug.strip("/").lower()
+        children = [meta for meta in doc_tree.values() if meta["parent_slug"] == norm_current]
+        children.sort(key=lambda x: x["title"].lower())
 
-    if children:
-        list_items = [f"* [{child['title']}]({child['rel_path']})" for child in children]
-        list_md = "\n".join(list_items) + "\n"
+        if children:
+            list_items = [f"* [{child['title']}]({child['rel_path']})" for child in children]
+            list_md = "\n".join(list_items) + "\n"
 
-        summary_items = [f"[{child['title']}]({child['rel_path']})\n\n{child['summary']}\n" for child in children]
-        summary_md = "\n".join(summary_items)
+            summary_items = [f"[{child['title']}]({child['rel_path']})\n\n{child['summary']}\n" for child in children]
+            summary_md = "\n".join(summary_items)
 
-        content = re.sub(r"\{\{ListSubPages\}\}", list_md, content, flags=re.IGNORECASE)
-        content = re.sub(r"\{\{Subpage?sWithSummaries\}\}", summary_md, content, flags=re.IGNORECASE)
-    else:
-        content = re.sub(r"\{\{ListSubPages\}\}", "", content, flags=re.IGNORECASE)
-        content = re.sub(r"\{\{Subpage?sWithSummaries\}\}", "", content, flags=re.IGNORECASE)
+            content = re.sub(r"\{\{ListSubPages\}\}", list_md, content, flags=re.IGNORECASE)
+            content = re.sub(r"\{\{Subpage?sWithSummaries\}\}", summary_md, content, flags=re.IGNORECASE)
+        else:
+            content = re.sub(r"\{\{ListSubPages\}\}", "", content, flags=re.IGNORECASE)
+            content = re.sub(r"\{\{Subpage?sWithSummaries\}\}", "", content, flags=re.IGNORECASE)
 
     return content
+
+
+def extract_summary(raw_content: str) -> str:
+    """Extracts a 1-paragraph summary mimicking MDN rari's get_hacky_summary_md."""
+    lines = raw_content.splitlines()
+    in_yaml = False
+    content_lines = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "---":
+            in_yaml = not in_yaml
+            continue
+        if not in_yaml:
+            content_lines.append(line)
+
+    summary_lines = []
+    start_collecting = False
+
+    for line in content_lines:
+        stripped = line.strip()
+
+        is_boundary = (
+            not stripped
+            or (stripped.startswith("{{") and stripped.endswith("}}"))
+            or stripped.startswith("#")
+        )
+
+        if not start_collecting:
+            if not is_boundary:
+                start_collecting = True
+                summary_lines.append(stripped)
+        else:
+            if is_boundary:
+                break
+            summary_lines.append(stripped)
+
+    raw_summary = " ".join(summary_lines) if summary_lines else "No summary found."
+
+    # Sanitize inline macros inside the summary text
+    cleaned_summary = process_all_macros(raw_summary, current_slug="", doc_tree={})
+    return cleaned_summary.strip()
+
+
+def build_document_tree(base_source: Path, base_output: Path) -> tuple[dict, dict]:
+    """Scans all source documents to build a slug lookup map and a parent-child document tree."""
+    slug_map = {}
+    doc_tree = {}
+
+    for root, _, files in os.walk(base_source):
+        for file in files:
+            if file == "index.md":
+                source_path = Path(root) / file
+                with open(source_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+
+                post = frontmatter.loads(content)
+                slug = compute_slug(source_path, content)
+                target_path = compute_target_path(source_path, base_source, base_output)
+
+                normalized_slug = slug.strip("/").lower()
+                rel_output = target_path.relative_to(base_output).as_posix()
+
+                slug_map[normalized_slug] = rel_output
+
+                parent_slug = ""
+                if "/" in normalized_slug:
+                    parent_slug = normalized_slug.rsplit("/", 1)[0]
+
+                doc_tree[normalized_slug] = {
+                    "slug": slug,
+                    "normalized_slug": normalized_slug,
+                    "title": post.metadata.get("title", slug.split("/")[-1]),
+                    "summary": extract_summary(post.content),
+                    "rel_path": rel_output,
+                    "parent_slug": parent_slug,
+                    "source_path": source_path,
+                    "target_path": target_path,
+                }
+
+    return slug_map, doc_tree
 
 
 def fetch_bcd_json(category_path: str) -> dict | None:
@@ -422,4 +447,3 @@ def process_files():
 
 if __name__ == "__main__":
     process_files()
-    
