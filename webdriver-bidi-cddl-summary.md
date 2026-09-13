@@ -1050,8 +1050,8 @@ browsingContext.CaptureScreenshot = (
       }
 
       browsingContext.ImageSize = {
-         ? maxWidth: (js-uint .gt 1),
-         ? maxHeight: (js-uint .gt 1),
+         ? maxWidth: (js-uint .ge 1),
+         ? maxHeight: (js-uint .ge 1),
       }
 
       browsingContext.ClipRectangle = (
