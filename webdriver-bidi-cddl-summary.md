@@ -1373,6 +1373,7 @@ browsingContext.StartScreencast = (
 
       browsingContext.StartScreencastParameters = {
         context: browsingContext.BrowsingContext,
+        ? destinationFolder: text,
         ? mimeType: text,
         ? video: browsingContext.MediaTrackConstraints,
         ? audio: bool .default false,
@@ -1835,6 +1836,7 @@ EmulationCommand = (
   emulation.SetScreenSettingsOverride //
   emulation.SetScriptingEnabled //
   emulation.SetScrollbarTypeOverride //
+  emulation.SetTextLayoutModeOverride //
   emulation.SetTimezoneOverride //
   emulation.SetTouchOverride //
   emulation.SetUserAgentOverride //
@@ -1851,6 +1853,7 @@ EmulationResult = (
   emulation.SetScreenOrientationOverrideResult /
   emulation.SetScriptingEnabledResult /
   emulation.SetScrollbarTypeOverrideResult /
+  emulation.SetTextLayoutModeOverrideResult /
   emulation.SetTimezoneOverrideResult /
   emulation.SetTouchOverrideResult /
   emulation.SetUserAgentOverrideResult /
@@ -2188,7 +2191,32 @@ emulation.SetScrollbarTypeOverrideResult = EmptyResult
 ```
 
 
-#### 2.4.2.12. #### The emulation.setTimezoneOverride Command ####
+#### 2.4.2.12. #### The emulation.setTextLayoutModeOverride Command ####
+
+The emulation.setTextLayoutModeOverride command modifies
+the text layout mode on the given top-level traversables, user contexts or globally.
+
+```cddl
+emulation.SetTextLayoutModeOverride = (
+        method: "emulation.setTextLayoutModeOverride",
+        params: emulation.SetTextLayoutModeOverrideParameters
+      )
+
+      emulation.SetTextLayoutModeOverrideParameters = {
+        textLayoutMode: emulation.TextLayoutMode / null,
+        ? contexts: [+browsingContext.BrowsingContext],
+        ? userContexts: [+browser.UserContext],
+      }
+
+      emulation.TextLayoutMode = "mobile"
+```
+
+```cddl
+emulation.SetTextLayoutModeOverrideResult = EmptyResult
+```
+
+
+#### 2.4.2.13. #### The emulation.setTimezoneOverride Command ####
 
 The emulation.setTimezoneOverride command modifies
 timezone on the given top-level traversables or user contexts.
@@ -2211,7 +2239,7 @@ emulation.SetTimezoneOverrideResult = EmptyResult
 ```
 
 
-#### 2.4.2.13. #### The emulation.setTouchOverride Command ####
+#### 2.4.2.14. #### The emulation.setTouchOverride Command ####
 
 The emulation.setTouchOverride command emulates
 enabled touch input on web pages.
