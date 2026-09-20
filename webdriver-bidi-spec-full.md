@@ -1,5 +1,5 @@
 ---
-generated_at: '2026-09-13T02:15:46Z'
+generated_at: '2026-09-20T02:33:17Z'
 source_url: 'https://www.w3.org/TR/2026/WD-webdriver-bidi-20260629'
 ---
 
