@@ -861,7 +861,7 @@ browsingContext.BrowsingContext = text;
 
 #### 2.3.2.2. #### The browsingContext.Info Type ####
 
-browsingContext.Info = {
+browsingContext.BaseInfo = (
  children: browsingContext.InfoList / null,
  clientWindow: browser.ClientWindow,
  context: browsingContext.BrowsingContext,
@@ -869,12 +869,12 @@ browsingContext.Info = {
  url: text,
  userContext: browser.UserContext,
  ? parent: browsingContext.BrowsingContext / null,
-}
+)
 
 ```cddl
 browsingContext.InfoList = [*browsingContext.Info]
 
-browsingContext.Info = {
+browsingContext.BaseInfo = (
   children: browsingContext.InfoList / null,
   clientWindow: browser.ClientWindow,
   context: browsingContext.BrowsingContext,
@@ -882,6 +882,10 @@ browsingContext.Info = {
   url: text,
   userContext: browser.UserContext,
   ? parent: browsingContext.BrowsingContext / null,
+)
+
+browsingContext.Info = {
+  browsingContext.BaseInfo
 }
 ```
 
@@ -1446,17 +1450,21 @@ browsingContext.TraverseHistoryResult = EmptyResult
 
 #### 2.3.4.1. #### The browsingContext.contextCreated Event ####
 
-**Algorithm: To Recursively emit context created eventsgiven |session| and |navigable|**
-To Recursively emit context created events given |session| and |navigable|:
-1. Emit a context created event with |session| and |navigable|.
-1. For each child navigable, |child|, of |navigable|:
- 1. Recursively emit context created events given |session| and |child|.
+browsingContext.ContextCreatedParameters = {
+ browsingContext.BaseInfo,
+ hasPlannedNavigation: bool,
+ }
 
 ```cddl
 browsingContext.ContextCreated = (
          method: "browsingContext.contextCreated",
-         params: browsingContext.Info
+         params: browsingContext.ContextCreatedParameters
         )
+
+        browsingContext.ContextCreatedParameters = {
+         browsingContext.BaseInfo,
+         hasPlannedNavigation: bool,
+        }
 ```
 
 
