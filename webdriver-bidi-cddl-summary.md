@@ -237,7 +237,27 @@ session.CapabilityRequest = {
 ```
 
 
-#### 2.1.2.3. #### The session.ProxyConfiguration Type ####
+#### 2.1.2.3. #### The session.CapabilityResponse Type ####
+
+The session.CapabilityResponse type represents all the negotiated capabilities for the new session.
+
+```cddl
+session.CapabilityResponse = {
+  acceptInsecureCerts: bool,
+  browserName: text,
+  browserVersion: text,
+  platformName: text,
+  setWindowRect: bool,
+  userAgent: text,
+  ? proxy: session.ProxyConfiguration,
+  ? unhandledPromptBehavior: session.UserPromptHandler,
+  ? webSocketUrl: text,
+  Extensible
+}
+```
+
+
+#### 2.1.2.4. #### The session.ProxyConfiguration Type ####
 
 session.AutodetectProxyConfiguration = (
  proxyType: "autodetect",
@@ -290,7 +310,7 @@ session.SystemProxyConfiguration = (
 ```
 
 
-#### 2.1.2.4. #### The session.UserPromptHandler Type ####
+#### 2.1.2.5. #### The session.UserPromptHandler Type ####
 
 The session.UserPromptHandler type represents the configuration of
 the user prompt handler.
@@ -311,7 +331,7 @@ session.UserPromptHandler = {
 ```
 
 
-#### 2.1.2.5. #### The session.UserPromptHandlerType Type ####
+#### 2.1.2.6. #### The session.UserPromptHandlerType Type ####
 
 The session.UserPromptHandlerType type represents the behavior
 of the user prompt handler.
@@ -321,7 +341,7 @@ session.UserPromptHandlerType = "accept" / "dismiss" / "ignore";
 ```
 
 
-#### 2.1.2.6. #### The session.Subscription Type ####
+#### 2.1.2.7. #### The session.Subscription Type ####
 
 The session.Subscription type represents a unique subscription identifier.
 
@@ -330,7 +350,7 @@ session.Subscription = text
 ```
 
 
-#### 2.1.2.7. #### The session.SubscribeParameters Type ####
+#### 2.1.2.8. #### The session.SubscribeParameters Type ####
 
 The session.SubscribeParameters type represents a request to
 subscribe to a specific set of events.
@@ -344,7 +364,7 @@ session.SubscribeParameters = {
 ```
 
 
-#### 2.1.2.8. #### The session.UnsubscribeByIDRequest Type ####
+#### 2.1.2.9. #### The session.UnsubscribeByIDRequest Type ####
 
 The session.UnsubscribeByIDRequest type represents a request to
 remove event subscriptions identified by subscription IDs.
@@ -356,7 +376,7 @@ session.UnsubscribeByIDRequest = {
 ```
 
 
-#### 2.1.2.9. #### The session.UnsubscribeByAttributesRequest Type ####
+#### 2.1.2.10. #### The session.UnsubscribeByAttributesRequest Type ####
 
 The session.UnsubscribeByAttributesRequest type represents a request to
 unsubscribe using subscription attributes.
@@ -412,18 +432,7 @@ session.New = (
 ```cddl
 session.NewResult = {
         sessionId: text,
-        capabilities: {
-          acceptInsecureCerts: bool,
-          browserName: text,
-          browserVersion: text,
-          platformName: text,
-          setWindowRect: bool,
-          userAgent: text,
-          ? proxy: session.ProxyConfiguration,
-          ? unhandledPromptBehavior: session.UserPromptHandler,
-          ? webSocketUrl: text,
-          Extensible
-        }
+        capabilities: session.CapabilityResponse
       }
 ```
 
