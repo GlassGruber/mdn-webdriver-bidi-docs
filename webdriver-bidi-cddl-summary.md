@@ -3230,27 +3230,27 @@ script.ChannelProperties = {
 ```
 
 
-#### 2.6.2.3. #### The script.EvaluateResult Type ####
+#### 2.6.2.3. #### The script.EvaluationResult Type ####
 
-script.EvaluateResultSuccess = {
+script.EvaluationResultSuccess = {
  type: "success",
  result: script.RemoteValue,
  realm: script.Realm
 }
 
 ```cddl
-script.EvaluateResult = (
-  script.EvaluateResultSuccess /
-  script.EvaluateResultException
+script.EvaluationResult = (
+  script.EvaluationResultSuccess /
+  script.EvaluationResultException
 )
 
-script.EvaluateResultSuccess = {
+script.EvaluationResultSuccess = {
   type: "success",
   result: script.RemoteValue,
   realm: script.Realm
 }
 
-script.EvaluateResultException = {
+script.EvaluationResultException = {
   type: "exception",
   exceptionDetails: script.ExceptionDetails
   realm: script.Realm
@@ -3931,7 +3931,7 @@ script.CallFunction = (
 ```
 
 ```cddl
-script.CallFunctionResult = script.EvaluateResult
+script.CallFunctionResult = script.EvaluationResult
 ```
 
 
@@ -3956,6 +3956,10 @@ script.Evaluate = (
         ? serializationOptions: script.SerializationOptions,
         ? userActivation: bool .default false,
       }
+```
+
+```cddl
+script.EvaluateResult = script.EvaluationResult
 ```
 
 
